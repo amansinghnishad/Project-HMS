@@ -41,6 +41,10 @@ exports.allotRooms = async (req, res) => {
             if (roomInState) {
                 const bedInState = roomInState.beds.find(b => b.bedId === allottedStudent.allottedBedId);
                 if (bedInState && !bedInState.studentId) {
+                    if (!allottedStudent.userId || !allottedStudent.userId._id) {
+                        console.warn(`Skipping occupancy mark for allotment ${allottedStudent._id} because userId is missing.`);
+                        return;
+                    }
                     bedInState.studentId = allottedStudent.userId._id.toString();
                     bedInState.rollNumber = allottedStudent.rollNumber;
                     roomInState.currentOccupancy++;
@@ -49,7 +53,17 @@ exports.allotRooms = async (req, res) => {
         });
         console.log("Updated currentHostelRoomsState with existing allotments.");
 
-        const allottedProfileIds = allPreviouslyAllottedStudents.map(a => a.studentProfileId._id.toString());
+        const orphanedAllotments = allPreviouslyAllottedStudents.filter(a => !a.studentProfileId);
+        if (orphanedAllotments.length > 0) {
+            console.warn(`Found ${orphanedAllotments.length} allotted records without a linked studentProfileId. They will be ignored for exclusion.`);
+            orphanedAllotments.forEach(orphan => {
+                console.warn(`  - Orphan allotment ID: ${orphan._id}, userId: ${orphan.userId?._id || 'N/A'}, rollNumber: ${orphan.rollNumber || 'N/A'}`);
+            });
+        }
+
+        const allottedProfileIds = allPreviouslyAllottedStudents
+            .filter(a => a.studentProfileId && a.studentProfileId._id)
+            .map(a => a.studentProfileId._id.toString());
         console.log("Previously Allotted Profile IDs (these will be excluded from new allotment):");
         allottedProfileIds.forEach(id => console.log(`  - ${id}`));
 

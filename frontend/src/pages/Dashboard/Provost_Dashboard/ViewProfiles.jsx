@@ -15,7 +15,6 @@ import {
   FaBell,
   FaUserCheck,
   FaCalendarAlt,
-  FaMapMarkerAlt,
   FaIdCard,
   FaUsers,
   FaSortAmountDown,
@@ -54,6 +53,43 @@ const ViewProfiles = () => {
     femaleStudents: 0,
     courses: [],
   });
+
+  const pickValue = (...candidates) => {
+    for (const candidate of candidates) {
+      if (candidate === undefined || candidate === null) {
+        continue;
+      }
+
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      } else if (typeof candidate === "number") {
+        if (!Number.isNaN(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    return "N/A";
+  };
+
+  const formatTitleCase = (value) => {
+    if (typeof value !== "string") {
+      return value ?? "N/A";
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "N/A";
+    }
+
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  };
+
+  const formatSgpa = (value) =>
+    typeof value === "number" && value > 0 ? value.toFixed(2) : "N/A";
   useEffect(() => {
     const fetchAllottedStudents = async () => {
       setLoading(true);
@@ -266,6 +302,73 @@ const ViewProfiles = () => {
       document.body.style.overflow = "unset";
     };
   }, [modalOpen]);
+
+  const selectedProfile = selectedStudent?.studentProfileId;
+  const selectedUser = selectedStudent?.userId;
+  const studentName = pickValue(
+    selectedProfile?.name,
+    selectedStudent?.name,
+    selectedUser?.name
+  );
+  const rollNumber = pickValue(
+    selectedProfile?.rollNumber,
+    selectedStudent?.rollNumber
+  );
+  const emailAddress = pickValue(
+    selectedProfile?.email,
+    selectedUser?.email
+  );
+  const phoneNumber = pickValue(
+    selectedProfile?.contactNumber,
+    selectedUser?.mobile
+  );
+  const genderRaw = pickValue(
+    selectedProfile?.gender,
+    selectedUser?.gender
+  );
+  const genderDisplay =
+    genderRaw === "N/A" ? "N/A" : formatTitleCase(genderRaw);
+  const roomPreferenceRaw = pickValue(
+    selectedStudent?.roomPreference,
+    selectedProfile?.roomPreference
+  );
+  const roomPreferenceDisplay =
+    typeof roomPreferenceRaw === "string"
+      ? formatTitleCase(roomPreferenceRaw.replace(/_/g, " "))
+      : roomPreferenceRaw;
+  const courseName = pickValue(selectedProfile?.courseName);
+  const departmentName = pickValue(selectedProfile?.department);
+  const semesterValue = selectedProfile?.semester;
+  const semesterDisplay =
+    typeof semesterValue === "number" && semesterValue > 0
+      ? `Semester ${semesterValue}`
+      : "N/A";
+  const admissionYearValue = selectedProfile?.admissionYear;
+  const admissionYearDisplay =
+    typeof admissionYearValue === "number" && admissionYearValue > 0
+      ? admissionYearValue.toString()
+      : pickValue(admissionYearValue);
+  const hostelNameDisplay = pickValue(
+    selectedStudent?.hostelName,
+    selectedProfile?.allottedHostelName
+  );
+  const roomNumberDisplay = pickValue(
+    selectedStudent?.allottedRoomNumber,
+    selectedProfile?.roomNumber
+  );
+  const floorDisplay = pickValue(selectedStudent?.floor);
+  const allotmentDateDisplay = selectedStudent?.allotmentDate
+    ? new Date(selectedStudent.allotmentDate).toLocaleDateString()
+    : "N/A";
+  const sgpaOddDisplay = formatSgpa(selectedProfile?.sgpaOdd);
+  const sgpaEvenDisplay = formatSgpa(selectedProfile?.sgpaEven);
+  const averageSgpaDisplay = formatSgpa(selectedStudent?.averageSgpa);
+  const fatherNameValue = selectedProfile?.fatherName;
+  const hasFatherName =
+    typeof fatherNameValue === "string" && fatherNameValue.trim().length > 0;
+  const motherNameValue = selectedProfile?.motherName;
+  const hasMotherName =
+    typeof motherNameValue === "string" && motherNameValue.trim().length > 0;
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 bg-gradient-to-br from-blue-50 to-indigo-50 min-h-screen">
@@ -276,9 +379,6 @@ const ViewProfiles = () => {
           </div>
           <p className="text-lg text-gray-600 font-medium">
             Loading student profiles...
-          </p>
-          <p className="text-sm text-gray-500 mt-2">
-            Gathering the latest information for you
           </p>
         </div>
       </div>
@@ -590,13 +690,10 @@ const ViewProfiles = () => {
                     <FaUser className="text-2xl text-white" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold">
-                      {selectedStudent.studentProfileId?.name || "N/A"}
-                    </h3>
+                    <h3 className="text-2xl font-bold">{studentName}</h3>
                     <p className="text-blue-100 flex items-center mt-1">
                       <FaIdCard className="mr-2" />
-                      Roll:{" "}
-                      {selectedStudent.studentProfileId?.rollNumber || "N/A"}
+                      Roll: {rollNumber}
                     </p>
                   </div>
                 </div>
@@ -620,31 +717,23 @@ const ViewProfiles = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <DetailItem
                     label="Email Address"
-                    value={selectedStudent.studentProfileId?.email || "N/A"}
+                    value={emailAddress}
                     icon={<FaEnvelope className="text-blue-600" />}
                   />
                   <DetailItem
                     label="Phone Number"
-                    value={
-                      selectedStudent.studentProfileId?.phoneNumber || "N/A"
-                    }
+                    value={phoneNumber}
                     icon={<FaPhone className="text-green-600" />}
                   />
                   <DetailItem
                     label="Gender"
-                    value={selectedStudent.studentProfileId?.gender || "N/A"}
+                    value={genderDisplay}
                     icon={<FaUser className="text-purple-600" />}
                   />
                   <DetailItem
-                    label="Date of Birth"
-                    value={
-                      selectedStudent.studentProfileId?.dateOfBirth
-                        ? new Date(
-                            selectedStudent.studentProfileId.dateOfBirth
-                          ).toLocaleDateString()
-                        : "N/A"
-                    }
-                    icon={<FaCalendarAlt className="text-orange-600" />}
+                    label="Room Preference"
+                    value={roomPreferenceDisplay}
+                    icon={<FaBed className="text-orange-600" />}
                   />
                 </div>
               </div>
@@ -658,35 +747,38 @@ const ViewProfiles = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <DetailItem
                     label="Course"
-                    value={
-                      selectedStudent.studentProfileId?.courseName || "N/A"
-                    }
+                    value={courseName}
                     icon={<FaGraduationCap className="text-blue-600" />}
                   />
                   <DetailItem
                     label="Department"
-                    value={
-                      selectedStudent.studentProfileId?.department || "N/A"
-                    }
+                    value={departmentName}
                     icon={<FaBuilding className="text-indigo-600" />}
                   />
                   <DetailItem
-                    label="Year of Study"
-                    value={
-                      selectedStudent.studentProfileId?.yearOfStudy || "N/A"
-                    }
-                    icon={<FaCalendarAlt className="text-green-600" />}
+                    label="Semester"
+                    value={semesterDisplay}
+                    icon={<FaHashtag className="text-green-600" />}
                   />
                   <DetailItem
-                    label="Admission Date"
-                    value={
-                      selectedStudent.studentProfileId?.admissionDate
-                        ? new Date(
-                            selectedStudent.studentProfileId.admissionDate
-                          ).toLocaleDateString()
-                        : "N/A"
-                    }
+                    label="Admission Year"
+                    value={admissionYearDisplay}
                     icon={<FaCalendarAlt className="text-teal-600" />}
+                  />
+                  <DetailItem
+                    label="SGPA (Odd)"
+                    value={sgpaOddDisplay}
+                    icon={<FaStar className="text-yellow-500" />}
+                  />
+                  <DetailItem
+                    label="SGPA (Even)"
+                    value={sgpaEvenDisplay}
+                    icon={<FaStar className="text-yellow-400" />}
+                  />
+                  <DetailItem
+                    label="Average SGPA"
+                    value={averageSgpaDisplay}
+                    icon={<FaCheckCircle className="text-green-600" />}
                   />
                 </div>
               </div>
@@ -700,62 +792,49 @@ const ViewProfiles = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <DetailItem
                     label="Hostel Name"
-                    value={selectedStudent.hostelName || "N/A"}
+                    value={hostelNameDisplay}
                     icon={<FaBuilding className="text-blue-600" />}
                   />
                   <DetailItem
                     label="Room Number"
-                    value={selectedStudent.allottedRoomNumber || "N/A"}
+                    value={roomNumberDisplay}
                     icon={<FaBed className="text-green-600" />}
                   />
                   <DetailItem
                     label="Floor"
-                    value={selectedStudent.floor || "N/A"}
+                    value={floorDisplay}
                     icon={<FaHashtag className="text-purple-600" />}
                   />
                   <DetailItem
                     label="Allotment Date"
-                    value={
-                      selectedStudent.allotmentDate
-                        ? new Date(
-                            selectedStudent.allotmentDate
-                          ).toLocaleDateString()
-                        : "N/A"
-                    }
+                    value={allotmentDateDisplay}
                     icon={<FaCalendarAlt className="text-orange-600" />}
                   />
                 </div>
               </div>
 
               {/* Additional Information */}
-              {(selectedStudent.studentProfileId?.address ||
-                selectedStudent.studentProfileId?.guardianName) && (
+              {(hasFatherName || hasMotherName) && (
                 <div>
                   <h5 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                    <FaMapMarkerAlt className="mr-2 text-blue-600" />
-                    Additional Information
+                    <FaUsers className="mr-2 text-blue-600" />
+                    Family Details
                   </h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedStudent.studentProfileId?.address && (
+                    {hasFatherName && (
                       <DetailItem
-                        label="Address"
-                        value={selectedStudent.studentProfileId.address}
-                        icon={<FaMapMarkerAlt className="text-red-600" />}
+                        label="Father's Name"
+                        value={fatherNameValue.trim()}
+                        icon={<FaUser className="text-indigo-600" />}
                         fullWidth
                       />
                     )}
-                    {selectedStudent.studentProfileId?.guardianName && (
+                    {hasMotherName && (
                       <DetailItem
-                        label="Guardian Name"
-                        value={selectedStudent.studentProfileId.guardianName}
-                        icon={<FaUser className="text-indigo-600" />}
-                      />
-                    )}
-                    {selectedStudent.studentProfileId?.guardianPhone && (
-                      <DetailItem
-                        label="Guardian Phone"
-                        value={selectedStudent.studentProfileId.guardianPhone}
-                        icon={<FaPhone className="text-green-600" />}
+                        label="Mother's Name"
+                        value={motherNameValue.trim()}
+                        icon={<FaUser className="text-purple-600" />}
+                        fullWidth
                       />
                     )}
                   </div>

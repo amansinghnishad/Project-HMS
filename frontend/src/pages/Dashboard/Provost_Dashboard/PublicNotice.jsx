@@ -154,7 +154,7 @@ const PublicNotice = () => {
     {
       id: 2,
       name: "Maintenance Notice",
-      category: "Maintenance",
+      category: "Facilities",
       title: "Scheduled Maintenance",
       content:
         "There will be scheduled maintenance of [facility/service] on [date] from [time] to [time]. Please plan accordingly.",
@@ -178,7 +178,7 @@ const PublicNotice = () => {
     {
       id: 5,
       name: "Urgent Alert",
-      category: "Urgent",
+      category: "Emergency",
       title: "Urgent Notice",
       content:
         "URGENT: [Urgent matter details]. Immediate action required. Please [specific instructions].",
@@ -272,7 +272,7 @@ const PublicNotice = () => {
       }
 
       if (result.success) {
-        resetForm();
+        resetForm(true);
         fetchNotices();
       }
     } catch (error) {
@@ -362,7 +362,7 @@ const PublicNotice = () => {
       }
     }
   };
-  const resetForm = () => {
+  const resetForm = (closeForm = false) => {
     setFormData({
       title: "",
       content: "",
@@ -374,8 +374,11 @@ const PublicNotice = () => {
     });
     setAttachments([]);
     setEditingNotice(null);
-    setShowForm(false);
     setSelectedTemplate(null);
+    setShowTemplates(false);
+    if (closeForm) {
+      setShowForm(false);
+    }
   };
 
   const handleRefresh = async () => {
@@ -642,9 +645,12 @@ const PublicNotice = () => {
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => {
-                  setShowForm(!showForm);
-                  setEditingNotice(null);
-                  resetForm();
+                  if (showForm) {
+                    resetForm(true);
+                  } else {
+                    resetForm();
+                    setShowForm(true);
+                  }
                 }}
                 className="flex items-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all duration-300 border border-white/20 font-medium shadow-lg"
               >
@@ -879,9 +885,10 @@ const PublicNotice = () => {
                 >
                   <option value="General">🔔 General</option>
                   <option value="Academic">📚 Academic</option>
+                  <option value="Administrative">📋 Administrative</option>
                   <option value="Events">🎉 Events</option>
-                  <option value="Maintenance">🔧 Maintenance</option>
-                  <option value="Urgent">⚠️ Urgent</option>
+                  <option value="Facilities">🔧 Facilities / Maintenance</option>
+                  <option value="Emergency">⚠️ Emergency</option>
                 </select>
               </div>
             </div>
@@ -1002,7 +1009,7 @@ const PublicNotice = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={resetForm}
+                  onClick={() => resetForm(true)}
                   className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-colors text-sm font-medium"
                 >
                   Cancel
@@ -1086,9 +1093,10 @@ const PublicNotice = () => {
             <option value="all">All Categories</option>
             <option value="General">🔔 General</option>
             <option value="Academic">📚 Academic</option>
+            <option value="Administrative">📋 Administrative</option>
             <option value="Events">🎉 Events</option>
-            <option value="Maintenance">🔧 Maintenance</option>
-            <option value="Urgent">⚠️ Urgent</option>
+            <option value="Facilities">🔧 Facilities / Maintenance</option>
+            <option value="Emergency">⚠️ Emergency</option>
           </select>
 
           <select
@@ -1208,9 +1216,8 @@ const PublicNotice = () => {
           {!showForm && (
             <button
               onClick={() => {
-                setShowForm(true);
-                setEditingNotice(null);
                 resetForm();
+                setShowForm(true);
               }}
               className="inline-flex items-center px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors font-medium shadow-lg"
             >
@@ -1283,11 +1290,13 @@ const NoticeCard = ({
         return <FaRegBell className="text-blue-500" />;
       case "Academic":
         return <FaGraduationCap className="text-purple-500" />;
+      case "Administrative":
+        return <FaClipboardList className="text-indigo-500" />;
       case "Events":
         return <FaCalendarAlt className="text-green-500" />;
-      case "Maintenance":
+      case "Facilities":
         return <FaTools className="text-orange-500" />;
-      case "Urgent":
+      case "Emergency":
         return <FaExclamationTriangle className="text-red-500" />;
       default:
         return <FaRegFileAlt className="text-gray-500" />;
