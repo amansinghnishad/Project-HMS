@@ -314,18 +314,12 @@ const ViewProfiles = () => {
     selectedProfile?.rollNumber,
     selectedStudent?.rollNumber
   );
-  const emailAddress = pickValue(
-    selectedProfile?.email,
-    selectedUser?.email
-  );
+  const emailAddress = pickValue(selectedProfile?.email, selectedUser?.email);
   const phoneNumber = pickValue(
     selectedProfile?.contactNumber,
     selectedUser?.mobile
   );
-  const genderRaw = pickValue(
-    selectedProfile?.gender,
-    selectedUser?.gender
-  );
+  const genderRaw = pickValue(selectedProfile?.gender, selectedUser?.gender);
   const genderDisplay =
     genderRaw === "N/A" ? "N/A" : formatTitleCase(genderRaw);
   const roomPreferenceRaw = pickValue(

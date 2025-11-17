@@ -887,7 +887,9 @@ const PublicNotice = () => {
                   <option value="Academic">📚 Academic</option>
                   <option value="Administrative">📋 Administrative</option>
                   <option value="Events">🎉 Events</option>
-                  <option value="Facilities">🔧 Facilities / Maintenance</option>
+                  <option value="Facilities">
+                    🔧 Facilities / Maintenance
+                  </option>
                   <option value="Emergency">⚠️ Emergency</option>
                 </select>
               </div>
