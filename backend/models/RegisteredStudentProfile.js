@@ -37,7 +37,7 @@ const StudentProfileSchema = new mongoose.Schema({
   },
   rollNumber: {
     type: String,
-    default: "",
+    default: null,
   },
   sgpaOdd: {
     type: Number,
@@ -55,10 +55,22 @@ const StudentProfileSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  bedId: {
+    type: String,
+    default: null,
+  },
+  allottedHostelName: {
+    type: String,
+    default: null,
+  },
+  isAllotted: {
+    type: Boolean,
+    default: false,
+  },
   roomPreference: {
     type: String,
-    enum: ["single", "double", "triple"],
-    default: "double",
+    enum: ["single", "triple"],
+    default: "triple",
   },
   admissionYear: {
     type: Number,
@@ -69,5 +81,8 @@ const StudentProfileSchema = new mongoose.Schema({
     default: "",
   }
 });
+
+StudentProfileSchema.index({ userId: 1 }, { unique: true });
+StudentProfileSchema.index({ rollNumber: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("RegisteredStudentProfile", StudentProfileSchema);

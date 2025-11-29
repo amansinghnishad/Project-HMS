@@ -11,114 +11,175 @@ const AllottedStudent = require("../models/AllottedStudent"); // Added AllottedS
 
 require("dotenv").config();
 
-// Send OTP
+const OTP_LENGTH = Number(process.env.OTP_LENGTH || 6);
+const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES || 15);
+const OTP_GENERATION_ATTEMPTS = Number(process.env.OTP_GENERATION_ATTEMPTS || 10);
+const PASSWORD_SALT_ROUNDS = Number(process.env.BCRYPT_SALT_ROUNDS || 10);
+
+const shouldExposeOtp = () => process.env.NODE_ENV !== "production";
+
+const generateOtpCandidate = () =>
+  otpGenerator.generate(OTP_LENGTH, {
+    upperCaseAlphabets: false,
+    lowerCaseAlphabets: false,
+    specialChars: false,
+  });
+
+const generateUniqueOtp = async () => {
+  for (let attempt = 0; attempt < OTP_GENERATION_ATTEMPTS; attempt += 1) {
+    const candidate = generateOtpCandidate();
+    const existing = await OTP.findOne({ otp: candidate }).lean();
+    if (!existing) {
+      return candidate;
+    }
+  }
+  throw new Error("Unable to generate unique OTP");
+};
+
+const createOtpRecord = async (email) => {
+  const otp = await generateUniqueOtp();
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+  const record = await OTP.create({ email, otp, expiresAt });
+  return { otp, expiresAt: record.expiresAt };
+};
+
+const fetchLatestOtp = async (email) =>
+  OTP.findOne({ email }).sort({ createdAt: -1 }).lean();
+
+const isOtpValid = (storedOtp, providedOtp) => {
+  if (!storedOtp) return false;
+  if (storedOtp.expiresAt < new Date()) return false;
+  return String(storedOtp.otp) === String(providedOtp);
+};
+
+const maybeIncludeOtp = (payload, otpData) => {
+  if (shouldExposeOtp() && otpData) {
+    payload.otp = otpData.otp;
+  }
+  if (otpData?.expiresAt) {
+    payload.expiresAt = otpData.expiresAt;
+  }
+  return payload;
+};
+
+const issueToken = (user, expiresIn = "7d") =>
+  jwt.sign({ id: user._id, email: user.email, role: user.role }, process.env.JWT_SECRET, {
+    expiresIn,
+  });
+
+const resolveDisplayName = (user) => {
+  if (user.firstName && user.lastName) {
+    return `${user.firstName} ${user.lastName}`;
+  }
+  return user.name || "User";
+};
+
+const normalizeEmail = (email) => (typeof email === "string" ? email.trim().toLowerCase() : "");
+
+const loginPrivilegedUser = async ({
+  requestEmail,
+  requestPassword,
+  envEmail,
+  envPasswordHash,
+  role,
+  defaultName,
+  successMessage,
+}) => {
+  if (!envEmail || !envPasswordHash) {
+    throw new Error(`Environment credentials missing for role: ${role}`);
+  }
+
+  if (requestEmail !== envEmail) {
+    return { status: 401, body: { success: false, message: `Invalid ${role} email.` } };
+  }
+
+  const passwordValid = await bcrypt.compare(requestPassword, envPasswordHash);
+  if (!passwordValid) {
+    return { status: 401, body: { success: false, message: `Invalid ${role} password.` } };
+  }
+
+  let user = await User.findOne({ email: envEmail });
+  if (!user) {
+    user = await User.create({ email: envEmail, role, name: defaultName });
+  }
+
+  const token = issueToken(user, "24h");
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      message: successMessage,
+      token,
+      role,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    },
+  };
+};
+
+// Handles OTP generation for new registrations.
 exports.sendOTP = async (req, res) => {
   try {
-    const { email } = req.body;
-
-    // Check if user is already present
-    const checkUserPresent = await User.findOne({ email });
-    if (checkUserPresent) {
-      return res.status(401).json({
-        success: false,
-        message: `User is Already Registered`,
-      });
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required." });
     }
 
-    let otp;
-    let otpExists = true;
-    let attempts = 0;
-    const maxAttempts = 10; // To prevent potential infinite loops
-
-    while (otpExists && attempts < maxAttempts) {
-      otp = otpGenerator.generate(6, {
-        upperCaseAlphabets: false,
-        lowerCaseAlphabets: false,
-        specialChars: false,
-      });
-      const existingOtp = await OTP.findOne({ otp });
-      if (!existingOtp) {
-        otpExists = false;
-      }
-      attempts++;
+    const existingUser = await User.findOne({ email }).select("_id").lean();
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: "User is already registered." });
     }
 
-    if (otpExists) {
-      console.error("Failed to generate a unique OTP after several attempts.");
-      return res.status(500).json({
-        success: false,
-        message: "Could not generate a unique OTP. Please try again later.",
-      });
-    }
+    const otpData = await createOtpRecord(email);
 
-    console.log("Generated unique OTP:", otp);
+    // TODO: integrate actual mail/SMS delivery here.
 
-    // Calculate expiration time (15 minutes from now)
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-    const otpPayload = { email, otp, expiresAt };
-    const otpBody = await OTP.create(otpPayload);
-    console.log("OTP Body", otpBody);
-
-    // **TODO**: Add actual OTP sending logic here (e.g., using an email service like Nodemailer)
-    // For example: await mailSender(email, "Verification OTP", `Your OTP is: ${otp}`);
-
-    res.status(200).json({
-      success: true,
-      message: `OTP Sent Successfully (simulation - check console/DB for OTP)`, // Modify message if actual sending is implemented
-      otp, // Consider removing OTP from response in production if sent via email/SMS
-      expiresAt: expiresAt
-    });
+    return res.status(200).json(
+      maybeIncludeOtp(
+        {
+          success: true,
+          message: "OTP sent successfully.",
+        },
+        otpData
+      )
+    );
   } catch (error) {
-    console.log(error.message);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error("sendOTP error", error);
+    return res.status(500).json({ success: false, message: "Failed to send OTP." });
   }
 };
 // ************************************************************************************************
 
-// Verify OTP
+// Confirms a registration OTP against the latest record.
 exports.verifyOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const otp = req.body.otp;
 
     if (!email || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and OTP are required.",
-      });
+      return res.status(400).json({ success: false, message: "Email and OTP are required." });
     }
 
-    const recentOTP = await OTP.findOne({ email }).sort({ createdAt: -1 });
-    if (!recentOTP || recentOTP.otp !== otp) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid OTP.",
-      });
+    const latestOtp = await fetchLatestOtp(email);
+    if (!isOtpValid(latestOtp, otp)) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP." });
     }
 
-    if (recentOTP.expiresAt < Date.now()) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "OTP verified successfully.",
-    });
+    return res.status(200).json({ success: true, message: "OTP verified successfully." });
   } catch (error) {
-    console.error("Error in verifyOtp:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error while verifying OTP.",
-    });
+    console.error("verifyOtp error", error);
+    return res.status(500).json({ success: false, message: "Server error while verifying OTP." });
   }
 };
 
 // ************************************************************************************************
 
-// Check Hostel Eligibility
+// Aggregates academic data to determine hostel eligibility.
 exports.checkHostelEligibility = async (req, res) => {
   try {
     const data = req.body;
@@ -143,17 +204,11 @@ exports.checkHostelEligibility = async (req, res) => {
 
 // ************************************************************************************************
 
-// Email & OTP Verification (was signUp)
+// Validates OTP before allowing profile completion.
 exports.emailVerification = async (req, res) => {
   try {
-    const {
-      email,
-      password,
-      confirmPassword,
-      otp
-    } = req.body;
-
-    console.log("Email verification request received with data:", { email, otp });
+    const email = normalizeEmail(req.body.email);
+    const { password, confirmPassword, otp } = req.body;
 
     if (!email || !password || !confirmPassword || !otp) {
       return res.status(400).json({
@@ -169,25 +224,15 @@ exports.emailVerification = async (req, res) => {
       });
     }
 
-    const recentOTP = await OTP.findOne({ email }).sort({ createdAt: -1 });
-    if (!recentOTP) {
+    const latestOtp = await fetchLatestOtp(email);
+    if (!isOtpValid(latestOtp, otp)) {
       return res.status(400).json({
         success: false,
-        message: "No OTP found for this email. Please request a new OTP.",
+        message: "Invalid or expired OTP. Please request a new one.",
       });
     }
-    if (recentOTP.otp.toString() !== otp.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid OTP. Please check and try again.",
-      });
-    }
-    if (recentOTP.expiresAt < Date.now()) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired. Please request a new one.",
-      });
-    }
+
+    await OTP.deleteMany({ email });
 
     return res.status(200).json({
       success: true,
@@ -206,43 +251,32 @@ exports.emailVerification = async (req, res) => {
 
 // ************************************************************************************************
 
-// Student Login
+// Authenticates student users and enforces room allotment.
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const { password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
+      return res.status(400).json({ success: false, message: "Email and password are required." });
     }
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "User is not registered",
-      });
+      return res.status(401).json({ success: false, message: "User is not registered." });
     }
 
     if (user.role !== "student") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Not a student account",
-      });
+      return res.status(403).json({ success: false, message: "Access denied. Not a student account." });
     }
 
     const isPasswordMatch = await bcrypt.compare(password, user.password);
     if (!isPasswordMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Incorrect password",
-      });
+      return res.status(401).json({ success: false, message: "Incorrect password." });
     }
 
     // Check if the student has been allotted a room
-    const allotmentRecord = await AllottedStudent.findOne({ userId: user._id });
+    const allotmentRecord = await AllottedStudent.findOne({ userId: user._id }).lean();
     if (!allotmentRecord) {
       return res.status(403).json({
         success: false,
@@ -250,24 +284,12 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // Construct user name based on available fields (firstName, lastName or name)
-    let userName = "Student"; // Default
-    if (user.firstName && user.lastName) {
-      userName = `${user.firstName} ${user.lastName}`;
-    } else if (user.name) {
-      userName = user.name;
-    }
-
+    const token = issueToken(user);
+    const userName = resolveDisplayName(user);
 
     return res.status(200).json({
       success: true,
-      message: "Login successful",
+      message: "Login successful.",
       token,
       user: {
         id: user._id,
@@ -278,10 +300,10 @@ exports.login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Login Error:", error);
+    console.error("login error", error);
     return res.status(500).json({
       success: false,
-      message: "Login failed due to server error",
+      message: "Login failed due to server error.",
       error: error.message,
     });
   }
@@ -289,126 +311,52 @@ exports.login = async (req, res) => {
 
 // ************************************************************************************************
 
-// Provost Login
+// Authenticates provosts against environment-defined credentials.
 exports.provostLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    console.log("Provost Login Attempt:");
-    console.log("Received email:", email);
-    console.log("Expected email:", process.env.PROVOST_EMAIL);
-    console.log("Email match:", email === process.env.PROVOST_EMAIL);
-
-    if (email !== process.env.PROVOST_EMAIL) {
-      console.log("Email validation failed");
-      return res.status(401).json({
-        success: false,
-        message: "Invalid provost email.",
-      });
-    }
-
-    console.log("Checking password...");
-    const isPasswordValid = await bcrypt.compare(password, process.env.PROVOST_PASSWORD_HASH);
-    console.log("Password valid:", isPasswordValid);
-
-    if (!isPasswordValid) {
-      console.log("Password validation failed");
-      return res.status(401).json({
-        success: false,
-        message: "Invalid provost password.",
-      });
-    } console.log("Login successful, generating token...");
-
-    // Create or find the provost user in the database
-    let provostUser = await User.findOne({ email });
-    if (!provostUser) {
-      // Create a provost user if it doesn't exist
-      provostUser = await User.create({
-        email,
-        role: "provost",
-        name: "Provost", // Default name, can be updated later
-      });
-    }
-
-    const token = jwt.sign(
-      { id: provostUser._id, email, role: "provost" },
-      process.env.JWT_SECRET,
-      { expiresIn: "24h" }
-    ); return res.status(200).json({
-      success: true,
-      message: "Provost logged in successfully.",
-      token,
+    const result = await loginPrivilegedUser({
+      requestEmail: email,
+      requestPassword: password,
+      envEmail: process.env.PROVOST_EMAIL,
+      envPasswordHash: process.env.PROVOST_PASSWORD_HASH,
       role: "provost",
-      user: {
-        id: provostUser._id,
-        email: provostUser.email,
-        name: provostUser.name,
-        role: provostUser.role
-      }
+      defaultName: "Provost",
+      successMessage: "Provost logged in successfully.",
     });
+
+    return res.status(result.status).json(result.body);
   } catch (err) {
-    console.error("Provost Login Error:", err);
+    console.error("provostLogin error", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error.",
       error: err.message,
     });
   }
 };
 // ************************************************************************************************
 
-// Chief Provost Login
+// Authenticates chief provosts using privileged credentials.
 exports.chiefProvostLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (email !== process.env.CHIEF_PROVOST_EMAIL) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid chief provost email.",
-      });
-    } const isPasswordValid = await bcrypt.compare(password, process.env.CHIEF_PROVOST_PASSWORD_HASH);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid chief provost password.",
-      });
-    }
-
-    // Create or find the chief provost user in the database
-    let chiefProvostUser = await User.findOne({ email });
-    if (!chiefProvostUser) {
-      // Create a chief provost user if it doesn't exist
-      chiefProvostUser = await User.create({
-        email,
-        role: "chiefProvost",
-        name: "Chief Provost", // Default name, can be updated later
-      });
-    }
-
-    const token = jwt.sign(
-      { id: chiefProvostUser._id, email, role: "chiefProvost" },
-      process.env.JWT_SECRET,
-      { expiresIn: "24h" }
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Chief Provost logged in successfully.",
-      token,
+    const result = await loginPrivilegedUser({
+      requestEmail: email,
+      requestPassword: password,
+      envEmail: process.env.CHIEF_PROVOST_EMAIL,
+      envPasswordHash: process.env.CHIEF_PROVOST_PASSWORD_HASH,
       role: "chiefProvost",
-      user: {
-        id: chiefProvostUser._id,
-        email: chiefProvostUser.email,
-        name: chiefProvostUser.name,
-        role: chiefProvostUser.role
-      }
+      defaultName: "Chief Provost",
+      successMessage: "Chief Provost logged in successfully.",
     });
+
+    return res.status(result.status).json(result.body);
   } catch (err) {
-    console.error("Chief Provost Login Error:", err);
+    console.error("chiefProvostLogin error", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error.",
       error: err.message,
     });
   }
@@ -416,10 +364,10 @@ exports.chiefProvostLogin = async (req, res) => {
 
 // ************************************************************************************************
 
-// Check if email already exists in database
+// Checks if an email is already registered.
 exports.checkEmail = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body.email);
 
     if (!email) {
       return res.status(400).json({
@@ -428,17 +376,17 @@ exports.checkEmail = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select("isVerifiedLU").lean();
 
     if (user) {
-      return res.status(200).json({ // Changed to 200 as it's a successful check
+      return res.status(200).json({
         exists: true,
         message: "This email is already registered",
-        status: user.isVerifiedLU ? "active" : "pending", // isVerifiedLU from your User model
+        status: user.isVerifiedLU ? "active" : "pending",
       });
     }
 
-    return res.status(200).json({ // Changed to 200
+    return res.status(200).json({
       exists: false,
       message: "Email is available for registration",
     });
@@ -455,10 +403,10 @@ exports.checkEmail = async (req, res) => {
 
 // ************************************************************************************************
 
-// Check verification status in database
+// Reports the latest OTP verification status for an email.
 exports.verificationStatus = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body.email);
 
     if (!email) {
       return res.status(400).json({
@@ -467,16 +415,16 @@ exports.verificationStatus = async (req, res) => {
       });
     }
 
-    const recentOTP = await OTP.findOne({ email }).sort({ createdAt: -1 });
+    const recentOTP = await fetchLatestOtp(email);
 
     if (!recentOTP) {
-      return res.status(200).json({ // Changed to 200
+      return res.status(200).json({
         verified: false,
         message: "No verification record found for this email.",
       });
     }
 
-    const isExpired = recentOTP.expiresAt < Date.now();
+    const isExpired = recentOTP.expiresAt < new Date();
 
     return res.status(200).json({
       verified: !isExpired,
@@ -497,7 +445,7 @@ exports.verificationStatus = async (req, res) => {
 };
 // ************************************************************************************************
 
-// Create or update RegisteredStudentProfile for a registered user
+// Creates or updates student registration profiles alongside user records.
 exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
   try {
     const {
@@ -518,6 +466,18 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
       contactNumber
     } = req.body;
 
+    const normalizedGender = typeof gender === "string" ? gender.toLowerCase() : undefined;
+    const allowedGenders = ["male", "female", "other"];
+    const effectiveGender = allowedGenders.includes(normalizedGender) ? normalizedGender : "other";
+
+    const allowedRoomPreferences = ["single", "triple"];
+    const normalizedRoomPreference = typeof roomPreference === "string" ? roomPreference.toLowerCase() : "triple";
+    const effectiveRoomPreference = allowedRoomPreferences.includes(normalizedRoomPreference) ? normalizedRoomPreference : "triple";
+
+    const normalizedRollNumber = typeof rollno === "string" ? rollno.trim().toUpperCase() : null;
+    const parsedSemester = Number(semester);
+    const effectiveSemester = Number.isFinite(parsedSemester) && parsedSemester > 0 ? parsedSemester : 0;
+
     // Basic validation
     if (!email || !password || !studentName || !gender || !contactNumber || !department || !courseName || !semester || !rollno) {
       return res.status(400).json({ success: false, message: "Required fields are missing. Please provide all required details." });
@@ -526,8 +486,8 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
     let user = await User.findOne({ email });
 
     // Check for existing roll number uniqueness
-    if (rollno) {
-      const existingProfileWithRollNo = await RegisteredStudentProfile.findOne({ rollNumber: rollno });
+    if (normalizedRollNumber) {
+      const existingProfileWithRollNo = await RegisteredStudentProfile.findOne({ rollNumber: normalizedRollNumber });
       if (existingProfileWithRollNo && (!user || existingProfileWithRollNo.userId.toString() !== user._id.toString())) {
         return res.status(409).json({
           success: false,
@@ -539,7 +499,7 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
     // Hashing the password
     let hashedPassword;
     try {
-      hashedPassword = await bcrypt.hash(password, 10);
+      hashedPassword = await bcrypt.hash(password, PASSWORD_SALT_ROUNDS);
     } catch (hashError) {
       console.error("Password Hashing Error:", hashError);
       return res.status(500).json({
@@ -555,21 +515,15 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
         email,
         password: hashedPassword,
         role: 'student', // Default role for new registrations via this route
-        gender, // Assuming gender is also part of the User model
+        gender: effectiveGender,
         mobile: contactNumber, // Assuming contactNumber maps to mobile in User model
         isVerifiedLU: true, // Mark as verified since they are completing profile
       });
     } else {
-      // If user exists but is not verified or password needs update (e.g. forgot password flow later)
-      // For now, we assume if user exists, they are proceeding after email/OTP verification
-      // and we might want to update their password if they are setting it for the first time here.
-      if (!user.isVerifiedLU) { // If they were in a pending state
-        user.password = hashedPassword; // Set/update password
-        user.isVerifiedLU = true; // Mark as verified
-      }
-      // Update other user fields if necessary, e.g., name, gender, mobile
+      user.password = hashedPassword;
+      user.isVerifiedLU = true;
       user.name = studentName;
-      user.gender = gender;
+      user.gender = effectiveGender;
       user.mobile = contactNumber;
     }
     // Save the user (either new or updated)
@@ -581,18 +535,17 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
     if (!studentProfile) {
       studentProfile = new RegisteredStudentProfile({
         userId: user._id,
-        email: user.email, // Store email in profile for convenience
         name: studentName,
         fatherName,
         motherName,
-        gender,
+        gender: effectiveGender,
         department,
         courseName,
-        semester,
-        rollNumber: rollno, // Ensure field name matches schema (rollNumber vs rollno)
+        semester: effectiveSemester,
+        rollNumber: normalizedRollNumber,
         sgpaOdd,
         sgpaEven,
-        roomPreference,
+        roomPreference: effectiveRoomPreference,
         admissionYear,
         contactNumber,
         isEligible: true, // Explicitly set isEligible to true for new profiles
@@ -604,14 +557,14 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
       studentProfile.name = studentName;
       studentProfile.fatherName = fatherName;
       studentProfile.motherName = motherName;
-      studentProfile.gender = gender;
+      studentProfile.gender = effectiveGender;
       studentProfile.department = department;
       studentProfile.courseName = courseName;
-      studentProfile.semester = semester;
-      studentProfile.rollNumber = rollno;
+      studentProfile.semester = effectiveSemester;
+      studentProfile.rollNumber = normalizedRollNumber;
       studentProfile.sgpaOdd = sgpaOdd;
       studentProfile.sgpaEven = sgpaEven;
-      studentProfile.roomPreference = roomPreference;
+      studentProfile.roomPreference = effectiveRoomPreference;
       studentProfile.admissionYear = admissionYear;
       studentProfile.contactNumber = contactNumber;
       studentProfile.isEligible = true; // Ensure isEligible is true on update as well
@@ -624,11 +577,7 @@ exports.createOrUpdateRegisteredStudentProfile = async (req, res) => {
     await user.save();
 
     // Create token for immediate login after registration (optional)
-    const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = issueToken(user);
 
     return res.status(200).json({
       success: true,

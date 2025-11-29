@@ -1,347 +1,305 @@
 const RegisteredStudentProfile = require('../models/RegisteredStudentProfile');
 const AllottedStudent = require('../models/AllottedStudent');
-const baseHostelRoomsData = require('../data/kautilyaHallData.js'); // Load the base static data
+const baseHostelRoomsData = require('../data/kautilyaHallData.js');
 
-// Helper function to calculate average SGPA
+const HOSTEL_KEY = 'boys';
+
 const calculateAverageSgpa = (sgpaOdd, sgpaEven) => {
     const odd = (typeof sgpaOdd === 'number' && sgpaOdd >= 0) ? sgpaOdd : 0;
     const even = (typeof sgpaEven === 'number' && sgpaEven >= 0) ? sgpaEven : 0;
-    if (odd === 0 && even === 0) return 0;
-    // Ensure that if one SGPA is present, it's treated as the average.
-    if (odd > 0 && even === 0) return odd;
-    if (even > 0 && odd === 0) return even;
+    if (!odd && !even) return 0;
+    if (odd && !even) return odd;
+    if (even && !odd) return even;
     return (odd + even) / 2;
 };
 
-exports.allotRooms = async (req, res) => {
-    console.log("--- Starting Allotment Process ---");
-    // 1a. Create a deep copy of base hostel room data
-    let currentHostelRoomsState = JSON.parse(JSON.stringify(baseHostelRoomsData));
+const cloneHostelLayout = () => {
+    const rooms = baseHostelRoomsData.map((room) => ({
+        ...room,
+        hostelName: room.hostelName || 'Kautilya Hall',
+        currentOccupancy: 0,
+        beds: room.beds.map((bed) => ({
+            ...bed,
+            studentId: null,
+            rollNumber: null,
+            sgpa: null,
+        })),
+    }));
 
-    // Initialize currentOccupancy to 0 and clean beds for all rooms in the copy
-    currentHostelRoomsState.forEach(room => {
-        room.currentOccupancy = 0;
-        room.beds.forEach(bed => {
-            delete bed.studentId;
-            delete bed.rollNumber;
-            delete bed.sgpa;
-        });
+    const roomKeyMap = new Map();
+    const buckets = {};
+
+    rooms.forEach((room) => {
+        const key = `${room.hostelType}:${room.roomNumber}`;
+        roomKeyMap.set(key, room);
+
+        if (!buckets[room.hostelType]) {
+            buckets[room.hostelType] = { single: [], triple: [] };
+        }
+        if (!buckets[room.hostelType][room.type]) {
+            buckets[room.hostelType][room.type] = [];
+        }
+        buckets[room.hostelType][room.type].push(room);
     });
 
-    try {
-        // 1b. Fetch ALL existing allotments to know which beds are ALREADY taken
-        const allPreviouslyAllottedStudents = await AllottedStudent.find({})
-            .populate('userId', 'name')
-            .populate('studentProfileId', 'rollNumber');
-        console.log(`Found ${allPreviouslyAllottedStudents.length} previously allotted students.`);
+    return { rooms, roomKeyMap, buckets };
+};
 
-        // 1c. Update currentHostelRoomsState based on existing allotments
-        allPreviouslyAllottedStudents.forEach(allottedStudent => {
-            const roomInState = currentHostelRoomsState.find(r => r.roomNumber === allottedStudent.allottedRoomNumber && r.hostelType === allottedStudent.allottedHostelType);
-            if (roomInState) {
-                const bedInState = roomInState.beds.find(b => b.bedId === allottedStudent.allottedBedId);
-                if (bedInState && !bedInState.studentId) {
-                    if (!allottedStudent.userId || !allottedStudent.userId._id) {
-                        console.warn(`Skipping occupancy mark for allotment ${allottedStudent._id} because userId is missing.`);
-                        return;
-                    }
-                    bedInState.studentId = allottedStudent.userId._id.toString();
-                    bedInState.rollNumber = allottedStudent.rollNumber;
-                    roomInState.currentOccupancy++;
-                }
-            }
-        });
-        console.log("Updated currentHostelRoomsState with existing allotments.");
-
-        const orphanedAllotments = allPreviouslyAllottedStudents.filter(a => !a.studentProfileId);
-        if (orphanedAllotments.length > 0) {
-            console.warn(`Found ${orphanedAllotments.length} allotted records without a linked studentProfileId. They will be ignored for exclusion.`);
-            orphanedAllotments.forEach(orphan => {
-                console.warn(`  - Orphan allotment ID: ${orphan._id}, userId: ${orphan.userId?._id || 'N/A'}, rollNumber: ${orphan.rollNumber || 'N/A'}`);
-            });
+const markExistingAllotments = (roomKeyMap, allotments) => {
+    allotments.forEach((allotment) => {
+        const key = `${allotment.allottedHostelType}:${allotment.allottedRoomNumber}`;
+        const room = roomKeyMap.get(key);
+        if (!room) {
+            return;
         }
 
-        const allottedProfileIds = allPreviouslyAllottedStudents
-            .filter(a => a.studentProfileId && a.studentProfileId._id)
-            .map(a => a.studentProfileId._id.toString());
-        console.log("Previously Allotted Profile IDs (these will be excluded from new allotment):");
-        allottedProfileIds.forEach(id => console.log(`  - ${id}`));
+        const bed = room.beds.find((b) => b.bedId === allotment.allottedBedId);
+        if (!bed || bed.studentId) {
+            return;
+        }
 
-        // Log all students who are marked as eligible, BEFORE filtering out already allotted ones
-        const allEligibleProfiles = await RegisteredStudentProfile.find({ isEligible: true }).populate('userId', 'name');
-        console.log(`Found ${allEligibleProfiles.length} total profiles marked as isEligible: true in RegisteredStudentProfile collection:`);
-        allEligibleProfiles.forEach(p => console.log(`  - Eligible Profile: ${p.userId.name}, Profile ID: ${p._id}, isEligible: ${p.isEligible}`));
+        bed.studentId = allotment.userId?.toString?.() || allotment.userId;
+        bed.rollNumber = allotment.rollNumber || null;
+        bed.sgpa = typeof allotment.averageSgpa === 'number' ? allotment.averageSgpa : null;
+        room.currentOccupancy = Math.min(room.capacity, (room.currentOccupancy || 0) + 1);
+    });
+};
 
-        // 1d. Fetch all eligible students who are NOT YET allotted
-        const newEligibleStudents = await RegisteredStudentProfile.find({
+const calculateAvailability = (rooms) => {
+    const availability = {};
+
+    rooms.forEach((room) => {
+        if (!availability[room.hostelType]) {
+            availability[room.hostelType] = {
+                singleTotalBeds: 0,
+                singleOccupiedBeds: 0,
+                singleAvailableBeds: 0,
+                tripleTotalBeds: 0,
+                tripleOccupiedBeds: 0,
+                tripleAvailableBeds: 0,
+            };
+        }
+
+        const stats = availability[room.hostelType];
+        if (room.type === 'single') {
+            stats.singleTotalBeds += room.capacity;
+            stats.singleOccupiedBeds += room.currentOccupancy;
+        } else if (room.type === 'triple') {
+            stats.tripleTotalBeds += room.capacity;
+            stats.tripleOccupiedBeds += room.currentOccupancy;
+        }
+    });
+
+    Object.values(availability).forEach((stats) => {
+        stats.singleAvailableBeds = stats.singleTotalBeds - stats.singleOccupiedBeds;
+        stats.tripleAvailableBeds = stats.tripleTotalBeds - stats.tripleOccupiedBeds;
+    });
+
+    return availability;
+};
+
+const getRemainingBeds = (buckets, hostelType) => {
+    const hostelBuckets = buckets[hostelType] || {};
+    return Object.values(hostelBuckets).reduce((total, rooms = []) => (
+        total + rooms.reduce((sum, room) => sum + (room.capacity - room.currentOccupancy), 0)
+    ), 0);
+};
+
+const findAndOccupyBed = (rooms = [], student) => {
+    for (const room of rooms) {
+        if (room.currentOccupancy >= room.capacity) continue;
+        for (const bed of room.beds) {
+            if (bed.studentId) continue;
+            bed.studentId = student.userId._id.toString();
+            bed.rollNumber = student.rollNumber;
+            bed.sgpa = student.averageSgpa;
+            room.currentOccupancy += 1;
+            return { room, bed };
+        }
+    }
+    return null;
+};
+
+const buildAllotmentDocument = (student, room, bed, allottedRoomType) => ({
+    studentProfileId: student._id,
+    userId: student.userId._id,
+    name: student.userId.name,
+    rollNumber: student.rollNumber,
+    courseName: student.courseName,
+    semester: student.semester,
+    sgpaOdd: student.sgpaOdd,
+    sgpaEven: student.sgpaEven,
+    averageSgpa: student.averageSgpa,
+    roomPreference: student.roomPreference,
+    allottedRoomType,
+    allottedRoomNumber: room.roomNumber,
+    allottedBedId: bed.bedId,
+    allottedHostelType: room.hostelType,
+    hostelName: room.hostelName,
+    floor: room.floor,
+    allotmentDate: new Date(),
+});
+
+const buildProfileUpdateOperation = (studentId, room, bed) => ({
+    updateOne: {
+        filter: { _id: studentId },
+        update: {
+            roomNumber: room.roomNumber,
+            bedId: bed.bedId,
+            allottedHostelName: room.hostelName,
+            isAllotted: true,
+        },
+    },
+});
+
+exports.allotRooms = async (req, res) => {
+    try {
+        const { rooms, roomKeyMap, buckets } = cloneHostelLayout();
+
+        const existingAllotments = await AllottedStudent.find({}, 'studentProfileId userId allottedRoomNumber allottedHostelType allottedBedId rollNumber averageSgpa')
+            .lean();
+
+        markExistingAllotments(roomKeyMap, existingAllotments);
+
+        const alreadyAllottedProfileIds = Array.from(new Set(
+            existingAllotments
+                .map((entry) => entry.studentProfileId)
+                .filter((id) => !!id)
+                .map((id) => id.toString())
+        ));
+
+        const eligibleStudents = await RegisteredStudentProfile.find({
             isEligible: true,
-            _id: { $nin: allottedProfileIds }
-        }).populate('userId', 'gender name');
-        console.log(`Found ${newEligibleStudents.length} new eligible students not yet allotted (after excluding previously allotted).`);
+            _id: { $nin: alreadyAllottedProfileIds },
+        })
+            .populate('userId', 'gender name')
+            .lean();
 
-        if (!newEligibleStudents || newEligibleStudents.length === 0) {
-            const availability = getRoomAvailabilityFromStaticData(currentHostelRoomsState);
-            console.log("No new eligible students found. Current availability calculated.");
+        const maleStudents = eligibleStudents
+            .filter((student) => student.userId?.gender?.toLowerCase() === 'male' && student.userId?._id)
+            .map((student) => ({
+                ...student,
+                userId: {
+                    _id: student.userId._id,
+                    name: student.userId.name,
+                    gender: student.userId.gender,
+                },
+                averageSgpa: calculateAverageSgpa(student.sgpaOdd, student.sgpaEven),
+            }));
+
+        if (!maleStudents.length) {
             return res.status(200).json({
                 success: true,
                 message: 'No new eligible students found for allotment at this time.',
                 allottedCount: 0,
                 allottedStudents: [],
-                availability
+                availability: calculateAvailability(rooms),
             });
         }
 
-        let studentsToProcess = newEligibleStudents
-            .filter(student => student.userId && student.userId.gender && student.userId.gender.toLowerCase() === 'male')
-            .map(student => ({
-                ...student.toObject(),
-                userId: student.userId.toObject ? student.userId.toObject() : student.userId,
-                averageSgpa: calculateAverageSgpa(student.sgpaOdd, student.sgpaEven),
-            }));
-        console.log(`Filtered down to ${studentsToProcess.length} male students to process.`);
-        studentsToProcess.forEach(s => console.log(`  - Eligible Student: ${s.userId.name}, Roll: ${s.rollNumber}, SGPA: ${s.averageSgpa}, Pref: ${s.roomPreference}, ID: ${s._id}`));
+        maleStudents.sort((a, b) => b.averageSgpa - a.averageSgpa);
 
-        studentsToProcess.sort((a, b) => b.averageSgpa - a.averageSgpa);
-        console.log("Sorted male students by SGPA (descending).");
-
-        let remainingBedsInHostel = 0;
-        currentHostelRoomsState.forEach(room => {
-            if (room.hostelType === 'boys') {
-                remainingBedsInHostel += (room.capacity - room.currentOccupancy);
-            }
-        });
-        console.log(`Calculated remaining beds in Kautilya Hall (boys): ${remainingBedsInHostel}`);
-
-        if (studentsToProcess.length > remainingBedsInHostel) {
-            console.log(`More eligible male students (${studentsToProcess.length}) than remaining available beds (${remainingBedsInHostel}). Slicing to top ${remainingBedsInHostel} by SGPA.`);
-            studentsToProcess = studentsToProcess.slice(0, remainingBedsInHostel);
-            console.log(`Students to process after slicing: ${studentsToProcess.length}`);
+        const remainingBeds = getRemainingBeds(buckets, HOSTEL_KEY);
+        if (!remainingBeds) {
+            return res.status(200).json({
+                success: true,
+                message: 'No beds available for allotment.',
+                allottedCount: 0,
+                allottedStudents: [],
+                availability: calculateAvailability(rooms),
+            });
         }
 
-        const newlyAllottedStudentsList = [];
-        const dbUpdatePromises = [];
+        const studentsToProcess = maleStudents.slice(0, remainingBeds);
 
-        const singlePreferenceStudents = studentsToProcess
-            .filter(s => s.roomPreference === 'single')
-            .sort((a, b) => b.averageSgpa - a.averageSgpa); // Already sorted by studentsToProcess, but re-sorting doesn't hurt
+        const singlePreference = studentsToProcess.filter((student) => student.roomPreference === 'single');
+        const flexibleStudents = studentsToProcess.filter((student) => student.roomPreference !== 'single');
 
-        let otherStudents = studentsToProcess
-            .filter(s => s.roomPreference !== 'single')
-            .sort((a, b) => b.averageSgpa - a.averageSgpa); // Already sorted, but re-sorting doesn't hurt
+        const allotmentDocs = [];
+        const profileUpdates = [];
 
-        console.log(`Initial singlePreferenceStudents: ${singlePreferenceStudents.length}`);
-        singlePreferenceStudents.forEach(s => console.log(`  - SinglePref: ${s.userId.name}, SGPA: ${s.averageSgpa}`));
-        console.log(`Initial otherStudents (non-single pref): ${otherStudents.length}`);
-        otherStudents.forEach(s => console.log(`  - OtherPrefInit: ${s.userId.name}, SGPA: ${s.averageSgpa}`));
+        const singleRooms = buckets[HOSTEL_KEY]?.single || [];
+        const tripleRooms = buckets[HOSTEL_KEY]?.triple || [];
 
-        let singleRoomsNewlyAllottedCount = 0;
-        const totalSingleBedsAvailable = currentHostelRoomsState
-            .filter(r => r.type === 'single' && r.hostelType === 'boys')
-            .reduce((acc, room) => acc + (room.capacity - room.currentOccupancy), 0);
-        console.log(`Total single beds available for new allotment: ${totalSingleBedsAvailable}`);
-
-        const tempOtherStudentsFromSinglePref = []; // Students who preferred single but couldn't get it
-
-        for (const student of singlePreferenceStudents) {
-            if (newlyAllottedStudentsList.length >= remainingBedsInHostel) {
-                console.log(`Overall bed limit reached during single pref processing for ${student.userId.name}. Adding to consider for other types.`);
-                tempOtherStudentsFromSinglePref.push(student);
-                continue; // Continue to add remaining singlePreferenceStudents to temp list
+        const fallbackPool = [];
+        for (const student of singlePreference) {
+            const result = findAndOccupyBed(singleRooms, student);
+            if (!result) {
+                fallbackPool.push(student);
+                continue;
             }
-
-            let allottedSingle = false;
-            if (singleRoomsNewlyAllottedCount < totalSingleBedsAvailable) {
-                const roomResult = findAndOccupyBed('single', student, currentHostelRoomsState);
-                if (roomResult) {
-                    const { room, bed } = roomResult;
-                    console.log(`Allotting SINGLE room ${room.roomNumber}-${bed.bedId} to ${student.userId.name}`);
-                    newlyAllottedStudentsList.push(createAllotmentEntry(student, room, bed, 'single', dbUpdatePromises));
-                    singleRoomsNewlyAllottedCount++;
-                    allottedSingle = true;
-                }
-            }
-
-            if (!allottedSingle) {
-                console.log(`Could not allot SINGLE room for ${student.userId.name} (Roll: ${student.rollNumber}) or no single rooms left/available. Adding to consider for other types.`);
-                tempOtherStudentsFromSinglePref.push(student);
-            }
+            const allotmentDoc = buildAllotmentDocument(student, result.room, result.bed, 'single');
+            allotmentDocs.push(allotmentDoc);
+            profileUpdates.push(buildProfileUpdateOperation(student._id, result.room, result.bed));
         }
 
-        // Add students who couldn't get their single preference to the main otherStudents list
-        if (tempOtherStudentsFromSinglePref.length > 0) {
-            otherStudents.push(...tempOtherStudentsFromSinglePref);
-            console.log(`Added ${tempOtherStudentsFromSinglePref.length} students from single preference to otherStudents list.`);
-        }
+        const combinedFlexPool = [...flexibleStudents, ...fallbackPool];
+        combinedFlexPool.sort((a, b) => b.averageSgpa - a.averageSgpa);
 
-        // Re-sort otherStudents as it might have new additions from singlePreferenceStudents
-        otherStudents.sort((a, b) => b.averageSgpa - a.averageSgpa);
-        console.log(`Re-sorted otherStudents list. Now has ${otherStudents.length} students:`);
-        otherStudents.forEach(s => console.log(`  -> Considering for Other/Triple: ${s.userId.name}, Roll: ${s.rollNumber}, SGPA: ${s.averageSgpa}, OriginalPref: ${s.roomPreference}, ID: ${s._id}`));
+        const alreadyAllottedProfiles = new Set(allotmentDocs.map((doc) => doc.studentProfileId.toString()));
 
-        for (const student of otherStudents) {
-            if (newlyAllottedStudentsList.length >= remainingBedsInHostel) {
-                console.log("Reached remainingBedsInHostel limit during otherStudents (triple) allotment.");
-                break;
-            }
-            if (newlyAllottedStudentsList.some(as => as.studentProfileId.toString() === student._id.toString())) {
-                console.log(`Student ${student.userId.name} (Roll: ${student.rollNumber}) already processed (likely got single). Skipping for triple.`);
+        for (const student of combinedFlexPool) {
+            if (alreadyAllottedProfiles.has(student._id.toString())) {
                 continue;
             }
 
-            const roomResult = findAndOccupyBed('triple', student, currentHostelRoomsState);
-            if (roomResult) {
-                const { room, bed } = roomResult;
-                console.log(`Allotting TRIPLE room ${room.roomNumber}-${bed.bedId} to ${student.userId.name}`);
-                newlyAllottedStudentsList.push(createAllotmentEntry(student, room, bed, 'triple', dbUpdatePromises));
-            } else {
-                console.log(`Could not allot TRIPLE room for student ${student.userId.name} (Roll: ${student.rollNumber}) due to unavailability. All triple beds might be full.`);
+            const result = findAndOccupyBed(tripleRooms, student);
+            if (!result) {
+                continue;
+            }
+
+            const allotmentDoc = buildAllotmentDocument(student, result.room, result.bed, 'triple');
+            allotmentDocs.push(allotmentDoc);
+            alreadyAllottedProfiles.add(student._id.toString());
+            profileUpdates.push(buildProfileUpdateOperation(student._id, result.room, result.bed));
+
+            if (allotmentDocs.length >= remainingBeds) {
+                break;
             }
         }
 
-        await Promise.all(dbUpdatePromises);
-        console.log("Database updates for new allotments completed.");
-        const finalAvailability = getRoomAvailabilityFromStaticData(currentHostelRoomsState);
-        console.log("Final availability calculated.");
-        console.log("--- Ending Allotment Process ---");
+        if (!allotmentDocs.length) {
+            return res.status(200).json({
+                success: true,
+                message: 'No rooms available for the current batch of eligible students.',
+                allottedCount: 0,
+                allottedStudents: [],
+                availability: calculateAvailability(rooms),
+            });
+        }
+
+        const insertedAllotments = await AllottedStudent.insertMany(allotmentDocs, { ordered: false });
+        if (profileUpdates.length) {
+            await RegisteredStudentProfile.bulkWrite(profileUpdates, { ordered: false });
+        }
+
+        const responseAllotments = insertedAllotments.map((doc) => doc.toObject());
 
         res.status(200).json({
             success: true,
-            message: `Room allotment process completed. ${newlyAllottedStudentsList.length} new students allotted.`,
-            allottedCount: newlyAllottedStudentsList.length,
-            allottedStudents: newlyAllottedStudentsList,
-            availability: finalAvailability,
+            message: `Room allotment process completed. ${responseAllotments.length} new students allotted.`,
+            allottedCount: responseAllotments.length,
+            allottedStudents: responseAllotments,
+            availability: calculateAvailability(rooms),
         });
 
     } catch (error) {
         console.error('Error during room allotment:', error);
-        console.log("--- Ending Allotment Process With Error ---");
         res.status(500).json({
             success: false,
             message: 'Internal server error during allotment.',
-            error: error.message
+            error: error.message,
         });
     }
 };
 
-// Helper to find an available bed in a specific room type and mark it occupied
-function findAndOccupyBed(roomType, student, currentRoomsData) {
-    for (const room of currentRoomsData) {
-        if (room.hostelType === 'boys' && room.type === roomType && room.currentOccupancy < room.capacity) {
-            for (const bed of room.beds) {
-                if (!bed.studentId) {
-                    bed.studentId = student.userId._id.toString();
-                    bed.rollNumber = student.rollNumber;
-                    bed.sgpa = student.averageSgpa;
-                    // bed.studentName = student.userId.name; // Optional for debugging state
-                    room.currentOccupancy++;
-                    return { room, bed };
-                }
-            }
-        }
-    }
-    return null;
-}
-
-// Helper to create allotment DB entry and update student profile
-function createAllotmentEntry(student, room, bed, allottedRoomType, dbUpdatePromises) {
-    const allotmentData = {
-        studentProfileId: student._id,
-        userId: student.userId._id,
-        name: student.userId.name, // Name from populated User model
-        rollNumber: student.rollNumber,
-        courseName: student.courseName,
-        semester: student.semester,
-        sgpaOdd: student.sgpaOdd,
-        sgpaEven: student.sgpaEven,
-        averageSgpa: student.averageSgpa,
-        roomPreference: student.roomPreference,
-        allottedRoomType: allottedRoomType,
-        allottedRoomNumber: room.roomNumber,
-        allottedBedId: bed.bedId,
-        allottedHostelType: 'boys', // Kautilya Hall specific
-        hostelName: room.hostelName || "Kautilya Hall", // Add hostel name
-        floor: room.floor,
-        allotmentDate: new Date(),
-    };
-
-    const newAllotment = new AllottedStudent(allotmentData);
-    dbUpdatePromises.push(newAllotment.save());
-    dbUpdatePromises.push(
-        RegisteredStudentProfile.findByIdAndUpdate(student._id, {
-            roomNumber: room.roomNumber,
-            bedId: bed.bedId,
-            allottedHostelName: room.hostelName || "Kautilya Hall",
-            isAllotted: true // Mark student as allotted in their profile
-        })
-    );
-    return newAllotment.toObject();
-}
-
-// Helper function to get room availability counts from the static hostelRoomsData (or its current state copy)
-const getRoomAvailabilityFromStaticData = (roomsData) => {
-    let availability = {
-        boys: {
-            singleTotalBeds: 0,
-            singleOccupiedBeds: 0,
-            singleAvailableBeds: 0,
-            tripleTotalBeds: 0,
-            tripleOccupiedBeds: 0,
-            tripleAvailableBeds: 0
-        }
-    };
-
-    roomsData.forEach(room => {
-        if (room.hostelType === 'boys') {
-            if (room.type === 'single') {
-                availability.boys.singleTotalBeds += room.capacity;
-                availability.boys.singleOccupiedBeds += room.currentOccupancy; // This is now correctly updated
-            } else if (room.type === 'triple') {
-                availability.boys.tripleTotalBeds += room.capacity;
-                availability.boys.tripleOccupiedBeds += room.currentOccupancy; // This is now correctly updated
-            }
-        }
-    });
-
-    availability.boys.singleAvailableBeds = availability.boys.singleTotalBeds - availability.boys.singleOccupiedBeds;
-    availability.boys.tripleAvailableBeds = availability.boys.tripleTotalBeds - availability.boys.tripleOccupiedBeds;
-
-    return availability;
-};
-
-// Endpoint to get current room availability (reflects the initial state of hostelRoomData.js)
-// This helper should reflect the current state of roomsData passed to it.
 exports.getRoomAvailability = async (req, res) => {
     try {
-        // To show real-time availability, we need to simulate an allotment dry run or query DB
-        // For now, this reflects the base static data's capacity, not live DB occupancy.
-        // To get live availability, this function would need to:
-        // 1. Load baseHostelRoomsData
-        // 2. Query AllottedStudent collection
-        // 3. Mark occupied beds in a copy of baseHostelRoomsData
-        // 4. Then calculate availability using the modified copy.
-        // The `allotRooms` function now does this internally before allotment.
-        // This endpoint can be enhanced to do the same for just viewing.
-
-        // Simplified: For now, let's make it reflect the base capacity.
-        // Or, for a more accurate view, it should do what allotRooms does at the beginning:
-        let currentHostelRoomsState = JSON.parse(JSON.stringify(baseHostelRoomsData));
-        currentHostelRoomsState.forEach(room => {
-            room.currentOccupancy = 0; // Reset
-            room.beds.forEach(bed => { delete bed.studentId; delete bed.rollNumber; delete bed.sgpa; });
-        });
-        const allPreviouslyAllottedStudents = await AllottedStudent.find({});
-        allPreviouslyAllottedStudents.forEach(allottedStudent => {
-            const roomInState = currentHostelRoomsState.find(r => r.roomNumber === allottedStudent.allottedRoomNumber && r.hostelType === allottedStudent.allottedHostelType);
-            if (roomInState) {
-                const bedInState = roomInState.beds.find(b => b.bedId === allottedStudent.allottedBedId);
-                if (bedInState && !bedInState.studentId) {
-                    bedInState.studentId = allottedStudent.userId.toString();
-                    roomInState.currentOccupancy++;
-                }
-            }
-        });
-        const availability = getRoomAvailabilityFromStaticData(currentHostelRoomsState);
-
+        const { rooms, roomKeyMap } = cloneHostelLayout();
+        const existingAllotments = await AllottedStudent.find({}, 'allottedRoomNumber allottedHostelType allottedBedId userId rollNumber averageSgpa')
+            .lean();
+        markExistingAllotments(roomKeyMap, existingAllotments);
+        const availability = calculateAvailability(rooms);
         res.status(200).json({ success: true, availability });
     } catch (error) {
         console.error('Error in getRoomAvailability endpoint:', error);
@@ -361,7 +319,8 @@ exports.getAllAllottedStudents = async (req, res) => {
                     select: 'name email gender'
                 }
             })
-            .populate('userId', 'name email gender'); // Also populate user details directly
+            .populate('userId', 'name email gender')
+            .lean();
 
         if (!allottedStudents || allottedStudents.length === 0) {
             return res.status(200).json({
@@ -370,30 +329,28 @@ exports.getAllAllottedStudents = async (req, res) => {
                 data: [],
                 count: 0
             });
-        }        // Enhance the data to ensure all necessary fields are available
-        const enhancedData = allottedStudents.map(student => {
-            const studentObj = student.toObject();
+        }
 
-            // If studentProfileId data is missing, use data from the AllottedStudent record itself
-            if (studentObj.studentProfileId) {
-                // Use the name from the nested User model if available, otherwise from the profile or AllottedStudent
-                studentObj.studentProfileId.name = studentObj.studentProfileId.name ||
-                    studentObj.studentProfileId.userId?.name ||
-                    studentObj.name;
+        const enhancedData = allottedStudents.map((student) => {
+            const record = { ...student };
 
-                // Ensure other fields are populated from the AllottedStudent record if missing
-                studentObj.studentProfileId.rollNumber = studentObj.studentProfileId.rollNumber || studentObj.rollNumber;
-                studentObj.studentProfileId.courseName = studentObj.studentProfileId.courseName || studentObj.courseName;
-                studentObj.studentProfileId.email = studentObj.studentProfileId.userId?.email || studentObj.userId?.email;
-                studentObj.studentProfileId.gender = studentObj.studentProfileId.gender || studentObj.studentProfileId.userId?.gender;
+            if (record.studentProfileId) {
+                record.studentProfileId = { ...record.studentProfileId };
+                const profile = record.studentProfileId;
+                const nestedUser = profile.userId;
+
+                profile.name = profile.name || nestedUser?.name || record.name;
+                profile.rollNumber = profile.rollNumber || record.rollNumber;
+                profile.courseName = profile.courseName || record.courseName;
+                profile.email = nestedUser?.email || record.userId?.email;
+                profile.gender = profile.gender || nestedUser?.gender;
             }
 
-            // Ensure hostelName is populated - if missing, set default based on hostel type
-            if (!studentObj.hostelName) {
-                studentObj.hostelName = studentObj.allottedHostelType === 'boys' ? 'Kautilya Hall' : 'Other Hostel';
+            if (!record.hostelName) {
+                record.hostelName = record.allottedHostelType === 'boys' ? 'Kautilya Hall' : 'Other Hostel';
             }
 
-            return studentObj;
+            return record;
         });
 
         res.status(200).json({

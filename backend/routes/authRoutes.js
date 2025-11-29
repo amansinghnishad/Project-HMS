@@ -1,10 +1,10 @@
 const express = require("express");
-const router = express.Router();
+
 const {
   sendOTP,
-  verifyOtp, // Import verifyOtp
+  verifyOtp,
   checkHostelEligibility,
-  emailVerification, // Renamed from signUp
+  emailVerification,
   login,
   provostLogin,
   chiefProvostLogin,
@@ -15,66 +15,58 @@ const {
   logout,
   sendResetPasswordOTP,
   verifyResetPasswordOTP,
-  resetPassword
+  resetPassword,
 } = require("../controllers/Auth");
+const { auth, isProvostOrChief } = require("../middleware/auth");
 
-// Import auth middleware
-const { auth } = require("../middleware/auth");
+const router = express.Router();
 
 // =======================
 // Student Routes
 // =======================
 
-// Send OTP
+// Request an OTP for new student registrations.
 router.post("/send-otp", sendOTP);
 
-// Verify OTP
+// Validate the OTP issued during registration.
 router.post("/verify-otp", verifyOtp);
 
-// Check email existence
+// Check availability of an email prior to registration.
 router.post("/check-email", checkEmail);
 
-// Check verification status
+// Inspect the verification status for a given email.
 router.post("/verification-status", verificationStatus);
 
-// Verify OTP
-router.post("/verify-otp", verifyOtp); // Add this route
-
-// Check eligibility before signup
+// Determine eligibility based on academic records.
 router.post("/check-eligibility", checkHostelEligibility);
 
-// Student signup (after eligibility check)
+// Confirm OTP prior to collecting profile details.
 router.post("/email-verification", emailVerification);
 
-// Student login
-router.post("/login", login);
-
-// Create or update student profile (after user registration)
+// Persist or update the student registration profile.
 router.post("/registered-student-profile", createOrUpdateRegisteredStudentProfile);
 
-// Provost login
+// Student authentication after room allotment.
+router.post("/login", login);
+
+// Provost authentication via env-configured credentials.
 router.post("/login-provost", provostLogin);
 
-// Chief Provost login
+// Chief provost authentication via env-configured credentials.
 router.post("/login-chief-provost", chiefProvostLogin);
 
-// Get all student profiles
-router.get("/registered-students", getAllRegisteredStudentProfiles);
+// Retrieve registered students for provost dashboards.
+router.get("/registered-students", auth, isProvostOrChief, getAllRegisteredStudentProfiles);
 
-// Logout route for both students and provosts (requires authentication)
+// Terminate the current session by invalidating the client token.
 router.post("/logout", auth, logout);
 
 // =======================
 // Reset Password Routes (Students Only)
 // =======================
 
-// Send reset password OTP
 router.post("/send-reset-password-otp", sendResetPasswordOTP);
-
-// Verify reset password OTP
 router.post("/verify-reset-password-otp", verifyResetPasswordOTP);
-
-// Reset password
 router.post("/reset-password", resetPassword);
 
 module.exports = router;

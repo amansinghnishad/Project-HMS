@@ -1,318 +1,412 @@
-const Razorpay = require('razorpay');
-const crypto = require('crypto');
-const Payment = require('../models/Payment');
-const User = require('../models/User');
-const AllottedStudent = require('../models/AllottedStudent');
-require('../models/RegisteredStudentProfile'); // Explicitly require StudentProfile model to ensure it's registered
-const razorpayInstance = require('../config/razorpay'); // Corrected import
+const crypto = require("crypto");
+const Payment = require("../models/Payment");
+const User = require("../models/User");
+const AllottedStudent = require("../models/AllottedStudent");
+require("../models/RegisteredStudentProfile");
+const razorpayInstance = require("../config/razorpay");
 
-// Fixed amounts (consider moving to a config file or environment variables)
-const HOSTEL_FEE_AMOUNT = 60000; // Example: 60000 INR for hostel
-const MESS_FEE_PER_SEMESTER = 20000; // Example: 20000 INR per semester for mess
+const HOSTEL_FEE_AMOUNT = Number(process.env.HOSTEL_FEE_AMOUNT || 60000);
+const MESS_FEE_AMOUNT = Number(process.env.MESS_FEE_AMOUNT || 20000);
+const CURRENCY = process.env.RAZORPAY_CURRENCY || "INR";
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 200;
 
-// Helper function to create an order with Razorpay
-const createRazorpayOrder = async (amount, currency, receipt, notes) => {
-  const options = {
-    amount: amount * 100, // Amount in the smallest currency unit (paise for INR)
+const PAYMENT_TYPES = Object.freeze({ HOSTEL: "hostel", MESS: "mess" });
+const MESS_SEMESTERS = Object.freeze(["odd", "even"]);
+const PAYMENT_STATUSES = Object.freeze(["pending", "created", "captured", "failed"]);
+
+const sanitizeText = (value) => (typeof value === "string" ? value.trim() : "");
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
+const normalizeSemester = (semester) => {
+  const normalized = sanitizeText(semester).toLowerCase();
+  if (!MESS_SEMESTERS.includes(normalized)) {
+    return null;
+  }
+  return normalized;
+};
+
+const buildReceipt = ({ prefix, studentId, extra }) =>
+  `${prefix}_${studentId}_${extra}_${Date.now().toString().slice(-6)}`;
+
+const createAcademicYear = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const nextYear = year + 1;
+  return `${year}-${nextYear}`;
+};
+
+const createRazorpayOrder = async ({ amount, currency, receipt, notes }) => {
+  const payload = {
+    amount: amount * 100,
     currency,
     receipt,
     notes,
   };
-  console.log("Creating Razorpay order with options:", options);
-  try {
-    const order = await razorpayInstance.orders.create(options);
-    console.log("Razorpay order created successfully:", order);
-    return order;
-  } catch (error) {
-    console.error("Error creating Razorpay order:", error);
-    throw error; // Re-throw to be caught by the controller
-  }
+  return razorpayInstance.orders.create(payload);
 };
 
-// Create Hostel Fee Order
-exports.createHostelFeeOrder = async (req, res) => {
+const fetchStudentWithProfile = async (userId) => {
+  const student = await User.findById(userId).populate("studentProfile");
+  if (!student || !student.studentProfile) {
+    return null;
+  }
+  return student;
+};
+
+const fetchActiveAllotment = (userId) =>
+  AllottedStudent.findOne({ userId }).lean();
+
+const createPaymentRecord = async ({
+  student,
+  allotment,
+  order,
+  amount,
+  academicYear,
+  paymentFor,
+  semester,
+}) =>
+  Payment.create({
+    studentId: student._id,
+    allottedStudentId: allotment._id,
+    paymentFor,
+    amount,
+    currency: CURRENCY,
+    status: "created",
+    academicYear,
+    semester,
+    roomNumber: allotment.allottedRoomNumber,
+    hostelType: allotment.allottedHostelType,
+    razorpayOrderId: order.id,
+  });
+
+const buildPaymentResponse = ({ order, paymentRecord, student }) => ({
+  orderId: order.id,
+  currency: order.currency,
+  amount: order.amount,
+  key: process.env.RAZORPAY_KEY,
+  studentName: student.name,
+  studentEmail: student.email,
+  notes: order.notes,
+  paymentRecordId: paymentRecord._id,
+});
+
+const populatePaymentQuery = (query) =>
+  query
+    .populate("studentId", "name email role")
+    .populate("allottedStudentId", "rollNumber allottedRoomNumber hostelFeeStatus messFeeStatus");
+
+// Create a Razorpay order for hostel fees.
+const createHostelFeeOrder = async (req, res) => {
   try {
-    const userId = req.user.id;
-    console.log("User ID for hostel fee:", userId);
-
-    const student = await User.findById(userId).populate('studentProfile');
-    if (!student || !student.studentProfile) {
-      console.log("Student or student profile not found for ID:", userId);
-      return res.status(404).json({ success: false, message: 'Student profile not found.' });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required." });
     }
-    console.log("Student found:", student.name, student.email);
 
-    // Check if student is allotted to a room (necessary for Payment model)
-    const allotment = await AllottedStudent.findOne({ userId: userId }); // Corrected field to userId
+    const student = await fetchStudentWithProfile(userId);
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Student profile not found." });
+    }
+
+    const allotment = await fetchActiveAllotment(userId);
     if (!allotment) {
-      console.log("Student not allotted a room. User ID:", userId);
-      return res.status(403).json({ success: false, message: 'You must be allotted a room to pay hostel fees.' });
+      return res.status(403).json({ success: false, message: "Room allotment is required to pay hostel fees." });
     }
-    console.log("Student allotment found for hostel fee. Room:", allotment.room);
 
-    const amount = HOSTEL_FEE_AMOUNT;
-    const currency = 'INR';
-    const receipt = `hstl_${student._id}_${Date.now().toString().slice(-6)}`;
-    console.log("Generated receipt for hostel fee:", receipt, "Length:", receipt.length);
-
-    const academicYear = new Date().getFullYear().toString(); // Or your specific academic year logic
-
+    const academicYear = createAcademicYear();
+    const receipt = buildReceipt({ prefix: "hstl", studentId: student._id, extra: "fy" });
     const notes = {
-      feeType: 'hostel',
+      feeType: PAYMENT_TYPES.HOSTEL,
       studentId: student._id.toString(),
-      studentName: student.name, // Corrected to student.name
-      academicYear: academicYear,
+      studentName: student.name,
+      academicYear,
     };
 
-    const order = await createRazorpayOrder(amount, currency, receipt, notes);
-
-    if (!order) {
-      return res.status(500).json({ success: false, message: 'Failed to create Razorpay order.' });
-    }
-
-    // Create initial payment record
-    const newPayment = new Payment({
-      studentId: student._id,
-      allottedStudentId: allotment._id, // Added allotment check
-      paymentFor: 'hostel',
-      amount: amount,
-      currency: currency,
-      status: 'created',
-      academicYear: academicYear,
-      semester: 'full_year', // Hostel fee is for full year
-      roomNumber: allotment.room, // Assuming allotment.room stores the room number
-      // hostelType: allotment.hostelId?.type, // Optional: if hostel details are populated in allotment
-      razorpayOrderId: order.id,
+    const order = await createRazorpayOrder({
+      amount: HOSTEL_FEE_AMOUNT,
+      currency: CURRENCY,
+      receipt,
+      notes,
     });
-    await newPayment.save();
-    console.log("Initial payment record created for hostel fee, ID:", newPayment._id);
+
+    const paymentRecord = await createPaymentRecord({
+      student,
+      allotment,
+      order,
+      amount: HOSTEL_FEE_AMOUNT,
+      academicYear,
+      paymentFor: PAYMENT_TYPES.HOSTEL,
+      semester: "full_year",
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Hostel fee order created successfully.',
-      orderId: order.id,
-      currency: order.currency,
-      amount: order.amount,
-      key: process.env.RAZORPAY_KEY, // Corrected to RAZORPAY_KEY
-      studentName: student.name, // Corrected to student.name
-      studentEmail: student.email,
-      notes: order.notes,
-      paymentRecordId: newPayment._id // Send new payment record ID
+      message: "Hostel fee order created successfully.",
+      ...buildPaymentResponse({ order, paymentRecord, student }),
     });
-
   } catch (error) {
-    console.error("Error creating hostel fee order:", error);
-    res.status(500).json({ success: false, message: 'Internal server error while creating hostel fee order.', error: error.message });
+    console.error("createHostelFeeOrder error:", error);
+    res.status(500).json({ success: false, message: "Hostel fee order creation failed." });
   }
 };
 
-// Create Mess Fee Order
-exports.createMessFeeOrder = async (req, res) => {
+// Create a Razorpay order for mess fees.
+const createMessFeeOrder = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { semester } = req.body; 
+    const userId = req.user?.id;
+    const semester = normalizeSemester(req.body?.semester);
 
-    console.log("--- Create Mess Fee Order ---");
-    console.log("User ID:", userId);
-    console.log("Semester:", semester);
-
-    if (!semester || !['odd', 'even'].includes(semester.toLowerCase())) {
-      console.log("Invalid semester provided:", semester);
-      return res.status(400).json({ success: false, message: 'Invalid semester provided. Must be "odd" or "even".' });
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required." });
     }
 
-    const student = await User.findById(userId).populate('studentProfile');
-    if (!student || !student.studentProfile) {
-      console.log("Student or student profile not found for ID:", userId);
-      return res.status(404).json({ success: false, message: 'Student profile not found.' });
+    if (!semester) {
+      return res.status(400).json({ success: false, message: "Semester must be 'odd' or 'even'." });
     }
-    console.log("Student found:", student.name, student.email); // Corrected to student.name
 
-    const allotment = await AllottedStudent.findOne({ userId: userId }); // Corrected field to userId
+    const student = await fetchStudentWithProfile(userId);
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Student profile not found." });
+    }
+
+    const allotment = await fetchActiveAllotment(userId);
     if (!allotment) {
-      console.log("Student not allotted a room. User ID:", userId);
-      return res.status(403).json({ success: false, message: 'You must be allotted a room to pay mess fees.' });
+      return res.status(403).json({ success: false, message: "Room allotment is required to pay mess fees." });
     }
-    console.log("Student allotment found. Room:", allotment.room);
 
-    const amount = MESS_FEE_PER_SEMESTER;
-    const currency = 'INR';
-    const receipt = `mess_${student._id}_${semester.charAt(0)}_${Date.now().toString().slice(-6)}`;
-    console.log("Generated receipt for mess fee:", receipt, "Length:", receipt.length);
-    
-    const academicYear = new Date().getFullYear().toString(); // Or your specific academic year logic
-
+    const academicYear = createAcademicYear();
+    const receipt = buildReceipt({ prefix: "mess", studentId: student._id, extra: semester[0] });
     const notes = {
-      feeType: 'mess',
+      feeType: PAYMENT_TYPES.MESS,
       studentId: student._id.toString(),
-      studentName: student.name, // Corrected to student.name
-      semester: semester,
-      academicYear: academicYear,
+      studentName: student.name,
+      semester,
+      academicYear,
     };
 
-    const order = await createRazorpayOrder(amount, currency, receipt, notes);
-    console.log("Order from createRazorpayOrder:", order);
-
-    if (!order) {
-      console.log("Failed to create Razorpay order (order is null/undefined).");
-      return res.status(500).json({ success: false, message: 'Failed to create Razorpay order.' });
-    }
-
-    // Create initial payment record
-    const newPayment = new Payment({
-        studentId: student._id,
-        allottedStudentId: allotment._id,
-        paymentFor: 'mess',
-        amount: amount,
-        currency: currency,
-        status: 'created',
-        academicYear: academicYear,
-        semester: semester.toLowerCase(),
-        roomNumber: allotment.room,
-        // hostelType: allotment.hostelId?.type, // Optional
-        razorpayOrderId: order.id,
+    const order = await createRazorpayOrder({
+      amount: MESS_FEE_AMOUNT,
+      currency: CURRENCY,
+      receipt,
+      notes,
     });
-    await newPayment.save();
-    console.log("Initial payment record created for mess fee, ID:", newPayment._id);
+
+    const paymentRecord = await createPaymentRecord({
+      student,
+      allotment,
+      order,
+      amount: MESS_FEE_AMOUNT,
+      academicYear,
+      paymentFor: PAYMENT_TYPES.MESS,
+      semester,
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Mess fee order created successfully.',
-      orderId: order.id,
-      currency: order.currency,
-      amount: order.amount,
-      key: process.env.RAZORPAY_KEY, // Corrected to RAZORPAY_KEY
-      studentName: student.name, // Corrected to student.name
-      studentEmail: student.email,
-      notes: order.notes,
-      paymentRecordId: newPayment._id // Send new payment record ID
+      message: "Mess fee order created successfully.",
+      ...buildPaymentResponse({ order, paymentRecord, student }),
     });
-
   } catch (error) {
-    console.error("Error creating mess fee order:", error.error ? error.error : error);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error while creating mess fee order.',
-        error: error.error ? error.error.description : error.message
-    });
+    console.error("createMessFeeOrder error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Mess fee order creation failed.", error: error?.message });
   }
 };
 
-// --- Verify Payment Signature ---
-exports.verifyPaymentSignature = async (req, res) => {
-    try {
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, paymentRecordId } = req.body; // Added paymentRecordId
-        const userId = req.user.id;
+const updateAllotmentFeeStatus = async ({ paymentRecord }) => {
+  if (!paymentRecord.allottedStudentId) {
+    return;
+  }
 
-        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !paymentRecordId) { // Added paymentRecordId check
-            return res.status(400).json({ success: false, message: 'Missing Razorpay payment details or payment record ID.' });
-        }
+  const feeTypeField =
+    paymentRecord.paymentFor === PAYMENT_TYPES.HOSTEL ? "hostelFeeStatus" : "messFeeStatus";
+  const paidOnField =
+    paymentRecord.paymentFor === PAYMENT_TYPES.HOSTEL ? "hostelFeePaidOn" : "messFeePaidOn";
 
-        // Use paymentRecordId to find the specific payment record
-        const paymentRecord = await Payment.findById(paymentRecordId); 
-        
-        if (!paymentRecord) {
-            return res.status(404).json({ success: false, message: 'Payment record not found for this ID.' });
-        }
-        // Security check: Ensure the payment record belongs to the logged-in user and matches the Razorpay order ID
-        if (paymentRecord.studentId.toString() !== userId || paymentRecord.razorpayOrderId !== razorpay_order_id) {
-            console.warn("Security Alert: Payment record mismatch for user:", userId, "paymentRecordId:", paymentRecordId, "razorpayOrderId:", razorpay_order_id);
-            return res.status(403).json({ success: false, message: 'Payment record mismatch or unauthorized.' });
-        }
-        
-        if (paymentRecord.status === 'captured') {
-            return res.status(200).json({ success: true, message: 'Payment already verified and captured.', payment: paymentRecord });
-        }
-
-        const body = razorpay_order_id + "|" + razorpay_payment_id;
-        const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_SECRET)
-            .update(body.toString())
-            .digest('hex');
-
-        if (expectedSignature === razorpay_signature) {
-            paymentRecord.status = 'captured';
-            paymentRecord.razorpayPaymentId = razorpay_payment_id;
-            paymentRecord.razorpaySignature = razorpay_signature;
-            paymentRecord.transactionDate = new Date();
-            await paymentRecord.save();
-            
-            // Update AllottedStudent fee status
-            if (paymentRecord.allottedStudentId) {
-                const feeTypeField = paymentRecord.paymentFor === 'hostel' ? 'hostelFeeStatus' : 'messFeeStatus';
-                const feePaidOnField = paymentRecord.paymentFor === 'hostel' ? 'hostelFeePaidOn' : 'messFeePaidOn';
-                try {
-                    await AllottedStudent.findByIdAndUpdate(paymentRecord.allottedStudentId, {
-                        [feeTypeField]: 'paid',
-                        [feePaidOnField]: new Date()
-                    });
-                    console.log(`Updated ${feeTypeField} for AllottedStudent ID: ${paymentRecord.allottedStudentId}`);
-                } catch (allotmentUpdateError) {
-                    console.error(`Failed to update AllottedStudent fee status for ${paymentRecord.allottedStudentId}:`, allotmentUpdateError);
-                    // Decide if this should cause the verification to fail or just log an error
-                }
-            }
-
-
-            res.status(200).json({
-                success: true,
-                message: 'Payment verified and captured successfully.',
-                paymentId: paymentRecord._id,
-                paymentFor: paymentRecord.paymentFor,
-                status: paymentRecord.status
-            });
-        } else {
-            paymentRecord.status = 'failed';
-            await paymentRecord.save();
-            res.status(400).json({ success: false, message: 'Payment verification failed. Signature mismatch.' });
-        }
-    } catch (error) {
-        console.error('Error verifying payment signature:', error);
-        res.status(500).json({ success: false, message: 'Internal server error.', error: error.message });
-    }
+  await AllottedStudent.findByIdAndUpdate(paymentRecord.allottedStudentId, {
+    [feeTypeField]: "paid",
+    [paidOnField]: new Date(),
+  });
 };
 
-// --- Get Payment History ---
-exports.getPaymentHistory = async (req, res) => {
-    try {
-        const userId = req.user.id; // From auth middleware
-
-        const payments = await Payment.find({ studentId: userId })
-            .sort({ createdAt: -1 }) // Show most recent first
-            .populate('allottedStudentId', 'rollNumber allottedRoomNumber'); // Populate some relevant details
-
-        if (!payments) {
-            return res.status(404).json({ success: false, message: 'No payment history found for this student.' });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'Payment history retrieved successfully.',
-            data: payments,
-        });
-    } catch (error) {
-        console.error('Error retrieving payment history:', error);
-        res.status(500).json({ success: false, message: 'Internal server error.', error: error.message });
-    }
+const verifySignature = ({ orderId, paymentId, providedSignature }) => {
+  const payload = `${orderId}|${paymentId}`;
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_SECRET)
+    .update(payload)
+    .digest("hex");
+  return expectedSignature === providedSignature;
 };
 
-// --- (Admin) Get All Payments ---
-// Add this if needed for admin/provost to view all payments
-exports.getAllPayments = async (req, res) => {
-    try {
-        // Ensure this is protected by admin/provost role in routes
-        const payments = await Payment.find({})
-            .populate('studentId', 'name email') // Populate student details from User model
-            .populate('allottedStudentId', 'rollNumber name allottedRoomNumber') // Populate from AllottedStudent
-            .sort({ createdAt: -1 });
-
-        res.status(200).json({
-            success: true,
-            count: payments.length,
-            data: payments,
-        });
-    } catch (error) {
-        console.error('Error retrieving all payments:', error);
-        res.status(500).json({ success: false, message: 'Internal server error.', error: error.message });
+// Verify Razorpay payment signature and update payment status.
+const verifyPaymentSignature = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required." });
     }
+
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, paymentRecordId } =
+      req.body || {};
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !paymentRecordId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing Razorpay payment details or payment record ID." });
+    }
+
+    const paymentRecord = await Payment.findById(paymentRecordId);
+    if (!paymentRecord) {
+      return res.status(404).json({ success: false, message: "Payment record not found." });
+    }
+
+    if (
+      paymentRecord.studentId.toString() !== userId ||
+      paymentRecord.razorpayOrderId !== razorpay_order_id
+    ) {
+      return res.status(403).json({ success: false, message: "Payment record mismatch or unauthorized." });
+    }
+
+    if (paymentRecord.status === "captured") {
+      return res.status(200).json({
+        success: true,
+        message: "Payment already verified and captured.",
+        payment: paymentRecord,
+      });
+    }
+
+    const signatureValid = verifySignature({
+      orderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
+      providedSignature: razorpay_signature,
+    });
+
+    if (!signatureValid) {
+      paymentRecord.status = "failed";
+      await paymentRecord.save();
+      return res.status(400).json({ success: false, message: "Payment verification failed." });
+    }
+
+    paymentRecord.status = "captured";
+    paymentRecord.razorpayPaymentId = razorpay_payment_id;
+    paymentRecord.razorpaySignature = razorpay_signature;
+    paymentRecord.transactionDate = new Date();
+    await paymentRecord.save();
+
+    try {
+      await updateAllotmentFeeStatus({ paymentRecord });
+    } catch (error) {
+      console.error("Failed to update allotment fee status:", error);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Payment verified and captured successfully.",
+      paymentId: paymentRecord._id,
+      paymentFor: paymentRecord.paymentFor,
+      status: paymentRecord.status,
+    });
+  } catch (error) {
+    console.error("verifyPaymentSignature error:", error);
+    res.status(500).json({ success: false, message: "Payment verification failed." });
+  }
+};
+
+// Provide payment history for authenticated students.
+const getPaymentHistory = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required." });
+    }
+
+    const statusFilter = sanitizeText(req.query?.status);
+    if (statusFilter && !PAYMENT_STATUSES.includes(statusFilter)) {
+      return res.status(400).json({ success: false, message: "Invalid payment status filter provided." });
+    }
+
+    const filter = { studentId: userId };
+    if (statusFilter) {
+      filter.status = statusFilter;
+    }
+
+    const payments = await populatePaymentQuery(
+      Payment.find(filter).sort({ createdAt: -1 })
+    ).lean({ getters: true });
+
+    res.status(200).json({
+      success: true,
+      message: "Payment history retrieved successfully.",
+      data: payments,
+    });
+  } catch (error) {
+    console.error("getPaymentHistory error:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve payment history." });
+  }
+};
+
+// Provide payment history for administrative users.
+const getAllPayments = async (req, res) => {
+  try {
+    const statusFilter = sanitizeText(req.query?.status);
+    if (statusFilter && !PAYMENT_STATUSES.includes(statusFilter)) {
+      return res.status(400).json({ success: false, message: "Invalid payment status filter provided." });
+    }
+
+    const paymentForFilter = sanitizeText(req.query?.paymentFor).toLowerCase();
+    if (paymentForFilter && !Object.values(PAYMENT_TYPES).includes(paymentForFilter)) {
+      return res.status(400).json({ success: false, message: "Invalid payment type filter provided." });
+    }
+
+    const page = parsePositiveInt(req.query?.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query?.limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (statusFilter) {
+      filter.status = statusFilter;
+    }
+    if (paymentForFilter) {
+      filter.paymentFor = paymentForFilter;
+    }
+
+    const [payments, total] = await Promise.all([
+      populatePaymentQuery(
+        Payment.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit)
+      ).lean({ getters: true }),
+      Payment.countDocuments(filter),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      count: total,
+      data: payments,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
+  } catch (error) {
+    console.error("getAllPayments error:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve payments." });
+  }
+};
+
+module.exports = {
+  createHostelFeeOrder,
+  createMessFeeOrder,
+  verifyPaymentSignature,
+  getPaymentHistory,
+  getAllPayments,
 };

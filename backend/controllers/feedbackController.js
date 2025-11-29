@@ -1,165 +1,248 @@
+const { isValidObjectId } = require("mongoose");
 const Feedback = require("../models/feedbackModel");
 
+const FEEDBACK_STATUSES = Object.freeze(["pending", "in-progress", "resolved", "closed"]);
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 200;
+
+const userPopulationConfig = {
+  path: "userId",
+  select: "name email role",
+  populate: {
+    path: "studentProfile",
+    select: "rollNumber roomNumber department courseName",
+  },
+};
+
+const resolvedByPopulationConfig = {
+  path: "resolvedBy",
+  select: "name email role",
+};
+
+const populateFeedbackQuery = (query) =>
+  query.populate(userPopulationConfig).populate(resolvedByPopulationConfig);
+
+const sanitizeText = (value) => (typeof value === "string" ? value.trim() : "");
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
+// Submit a new feedback entry.
 const submitFeedback = async (req, res) => {
   try {
-    const { feedbackType, customSubject, message } = req.body;
-    const userId = req.user.id; // Get user ID from auth middleware
+    const { feedbackType, customSubject, message } = req.body || {};
+    const userId = req.user?.id;
 
-    if (!feedbackType || !message) {
+    if (!userId) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
+    const type = sanitizeText(feedbackType);
+    const body = sanitizeText(message);
+    const custom = sanitizeText(customSubject);
+    const subject = type === "Other" ? custom : type;
+
+    if (!type || !body) {
       return res.status(400).json({
         success: false,
-        error: "Feedback type and message are required."
+        error: "Feedback type and message are required.",
       });
     }
 
-    const feedback = new Feedback({
-      feedbackType,
-      subject: feedbackType === "Other" ? customSubject : feedbackType,
-      customSubject: feedbackType === "Other" ? customSubject : undefined,
-      message,
+    if (type === "Other" && !subject) {
+      return res.status(400).json({
+        success: false,
+        error: "Custom subject is required when feedback type is Other.",
+      });
+    }
+
+    const newFeedback = await Feedback.create({
+      feedbackType: type,
+      subject,
+      customSubject: type === "Other" ? subject : undefined,
+      message: body,
       userId,
-      status: 'pending'
+      status: "pending",
     });
 
-    await feedback.save();
-
-    // Populate user info for response
-    await feedback.populate('userId', 'firstName lastName email');
+    await newFeedback.populate([userPopulationConfig, resolvedByPopulationConfig]);
 
     res.status(201).json({
       success: true,
       message: "Feedback submitted successfully.",
-      data: feedback
+      data: newFeedback,
     });
   } catch (error) {
-    console.error("Error submitting feedback:", error);
+    console.error("submitFeedback error:", error);
     res.status(500).json({
       success: false,
-      error: "An error occurred while submitting feedback."
+      error: "An error occurred while submitting feedback.",
     });
   }
 };
 
+// Retrieve feedback submitted by the requesting user.
 const getFeedback = async (req, res) => {
   try {
-    const userId = req.user.id; // Get user ID from auth middleware
-    const feedbacks = await Feedback.find({ userId })
-      .sort({ createdAt: -1 })
-      .populate({
-        path: 'userId',
-        select: 'name email',
-        populate: {
-          path: 'studentProfile',
-          select: 'rollNumber roomNumber department courseName'
-        }
-      })
-      .populate('resolvedBy', 'name');
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
+    const statusFilter = sanitizeText(req.query?.status);
+    if (statusFilter && !FEEDBACK_STATUSES.includes(statusFilter)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status filter provided.",
+      });
+    }
+
+    const page = parsePositiveInt(req.query?.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query?.limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const skip = (page - 1) * limit;
+
+    const filter = { userId };
+    if (statusFilter) {
+      filter.status = statusFilter;
+    }
+
+    const [feedbacks, total] = await Promise.all([
+      populateFeedbackQuery(
+        Feedback.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit)
+      ).lean({ getters: true }),
+      Feedback.countDocuments(filter),
+    ]);
 
     res.status(200).json({
       success: true,
-      data: feedbacks
+      data: feedbacks,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
     });
   } catch (error) {
-    console.error("Error fetching user feedback:", error);
+    console.error("getFeedback error:", error);
     res.status(500).json({
       success: false,
-      error: "An error occurred while retrieving feedback."
+      error: "An error occurred while retrieving feedback.",
     });
   }
 };
 
-// Get all feedback for provost
+// Retrieve all feedback entries for administrative users.
 const getAllFeedback = async (req, res) => {
   try {
-    console.log("Fetching all feedback for provost..."); // Debug log
-    const feedbacks = await Feedback.find()
-      .sort({ createdAt: -1 })
-      .populate({
-        path: 'userId',
-        select: 'name email',
-        populate: {
-          path: 'studentProfile',
-          select: 'rollNumber roomNumber department courseName'
-        }
-      })
-      .populate('resolvedBy', 'name');
+    const statusFilter = sanitizeText(req.query?.status);
+    if (statusFilter && !FEEDBACK_STATUSES.includes(statusFilter)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status filter provided.",
+      });
+    }
 
-    console.log(`Found ${feedbacks.length} feedback entries`); // Debug log
+    const page = parsePositiveInt(req.query?.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query?.limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (statusFilter) {
+      filter.status = statusFilter;
+    }
+
+    const [feedbacks, total] = await Promise.all([
+      populateFeedbackQuery(
+        Feedback.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit)
+      ).lean({ getters: true }),
+      Feedback.countDocuments(filter),
+    ]);
+
     res.status(200).json({
       success: true,
-      data: feedbacks
+      data: feedbacks,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
     });
   } catch (error) {
-    console.error("Error fetching all feedback:", error); res.status(500).json({
+    console.error("getAllFeedback error:", error);
+    res.status(500).json({
       success: false,
-      error: "An error occurred while retrieving feedback."
+      error: "An error occurred while retrieving feedback.",
     });
   }
 };
 
-// Resolve feedback (for Provost)
+// Update a feedback entry status and response.
 const resolveFeedback = async (req, res) => {
   try {
     const { feedbackId } = req.params;
-    const { status, response } = req.body;
-    const resolvedBy = req.user.id;
+    const { status, response } = req.body || {};
+    const resolvedBy = req.user?.id;
 
-    if (!feedbackId || !status) {
+    if (!resolvedBy) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
+    if (!feedbackId || !isValidObjectId(feedbackId)) {
+      return res.status(400).json({ success: false, error: "A valid feedback ID is required." });
+    }
+
+    const normalizedStatus = sanitizeText(status);
+    if (!FEEDBACK_STATUSES.includes(normalizedStatus)) {
       return res.status(400).json({
         success: false,
-        error: "Feedback ID and status are required."
+        error: "Invalid status. Must be one of: pending, in-progress, resolved, closed.",
       });
     }
 
-    const validStatuses = ["pending", "in-progress", "resolved", "closed"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid status. Must be one of: pending, in-progress, resolved, closed"
-      });
-    }
+    const sanitizedResponse = sanitizeText(response);
 
-    const updateData = {
-      status,
-      response: response || ""
+    const updateOperation = {
+      $set: {
+        status: normalizedStatus,
+        response: sanitizedResponse,
+      },
     };
 
-    // If marking as resolved or closed, add resolution details
-    if (status === "resolved" || status === "closed") {
-      updateData.resolvedBy = resolvedBy;
-      updateData.resolvedAt = new Date();
+    if (normalizedStatus === "resolved" || normalizedStatus === "closed") {
+      updateOperation.$set.resolvedBy = resolvedBy;
+      updateOperation.$set.resolvedAt = new Date();
+    } else {
+      updateOperation.$unset = { resolvedBy: "", resolvedAt: "" };
     }
 
-    const updatedFeedback = await Feedback.findByIdAndUpdate(
-      feedbackId,
-      updateData,
-      { new: true }
-    ).populate({
-      path: 'userId',
-      select: 'name email',
-      populate: {
-        path: 'studentProfile',
-        select: 'rollNumber roomNumber department courseName'
-      }
-    }).populate('resolvedBy', 'name email');
+    const updatedFeedback = await populateFeedbackQuery(
+      Feedback.findByIdAndUpdate(feedbackId, updateOperation, {
+        new: true,
+        runValidators: true,
+      })
+    ).lean({ getters: true });
 
     if (!updatedFeedback) {
-      return res.status(404).json({
-        success: false,
-        error: "Feedback not found."
-      });
+      return res.status(404).json({ success: false, error: "Feedback not found." });
     }
 
     res.status(200).json({
       success: true,
       data: updatedFeedback,
-      message: `Feedback ${status} successfully.`
+      message: `Feedback ${normalizedStatus} successfully.`,
     });
   } catch (error) {
-    console.error("Error resolving feedback:", error);
+    console.error("resolveFeedback error:", error);
     res.status(500).json({
       success: false,
-      error: "An error occurred while resolving the feedback."
+      error: "An error occurred while resolving the feedback.",
     });
   }
 };

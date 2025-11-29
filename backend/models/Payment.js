@@ -17,4 +17,9 @@ const PaymentSchema = new mongoose.Schema({
   transactionDate: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+PaymentSchema.index({ studentId: 1, paymentFor: 1, academicYear: -1, semester: 1 });
+PaymentSchema.index({ allottedStudentId: 1 });
+PaymentSchema.index({ razorpayOrderId: 1 }, { unique: true, sparse: true });
+PaymentSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("Payment", PaymentSchema);

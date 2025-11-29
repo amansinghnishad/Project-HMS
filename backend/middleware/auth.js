@@ -1,109 +1,71 @@
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const User = require("../models/User");
 
-// Middleware to check if the user is authenticated
-exports.auth = async (req, res, next) => {
+const ensureSecret = () => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET must be set for authentication middleware.");
+  }
+};
+
+const extractToken = (req) => {
+  if (req.cookies?.token) return req.cookies.token;
+  if (req.body?.token) return req.body.token;
+
+  const authHeader = req.header("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.substring(7).trim();
+  }
+
+  return null;
+};
+
+const verifyToken = (token) => {
+  ensureSecret();
+  return jwt.verify(token, process.env.JWT_SECRET);
+};
+
+exports.auth = (req, res, next) => {
   try {
-    const token =
-      req.cookies?.token ||
-      req.body?.token ||
-      req.header("Authorization")?.replace("Bearer ", "");
-
+    const token = extractToken(req);
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Token missing",
-      });
+      return res.status(401).json({ success: false, message: "Authentication token missing." });
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded; // Attach decoded token to request
+      req.user = verifyToken(token);
     } catch (error) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid or expired token",
-      });
+      return res.status(401).json({ success: false, message: "Invalid or expired token." });
     }
 
-    next();
+    return next();
   } catch (error) {
-    return res.status(401).json({
-      success: false,
-      message: "Something went wrong while validating the token",
-    });
+    console.error("Auth middleware error", error);
+    return res.status(500).json({ success: false, message: "Authentication processing failed." });
   }
 };
 
-// Middleware for Student-only routes
-exports.isStudent = async (req, res, next) => {
+const createRoleGuard = (...allowedRoles) => (req, res, next) => {
   try {
-    if (req.user.role !== "student") {
+    if (!req.user?.role) {
+      return res.status(403).json({ success: false, message: "Access denied. Role information missing." });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: "Access denied. Students only.",
+        message: `Access denied. Requires role: ${allowedRoles.join(" or ")}.`,
       });
     }
-    next();
+
+    return next();
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "User role can't be verified",
-    });
+    console.error("Role guard error", error);
+    return res.status(500).json({ success: false, message: "User role validation failed." });
   }
 };
 
-// Middleware for Provost-only routes
-exports.isProvost = async (req, res, next) => {
-  try {
-    if (req.user.role !== "provost") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Provosts only.",
-      });
-    }
-    next();
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "User role can't be verified",
-    });
-  }
-};
-
-// Middleware for Chief Provost-only routes
-exports.isChiefProvost = async (req, res, next) => {
-  try {
-    if (req.user.role !== "chiefProvost") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Chief Provosts only.",
-      });
-    }
-    next();
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "User role can't be verified",
-    });
-  }
-};
-
-// Middleware for Provost or Admin
-exports.isProvostOrAdmin = async (req, res, next) => {
-  try {
-    if (req.user.role !== "provost" && req.user.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Provosts or Admins only.",
-      });
-    }
-    next();
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "User role can't be verified",
-    });
-  }
-};
+exports.isStudent = createRoleGuard("student");
+exports.isProvost = createRoleGuard("provost");
+exports.isChiefProvost = createRoleGuard("chiefProvost");
+exports.isProvostOrChief = createRoleGuard("provost", "chiefProvost");
+exports.isProvostOrAdmin = createRoleGuard("provost", "admin");

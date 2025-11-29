@@ -70,11 +70,35 @@ const allottedStudentSchema = new mongoose.Schema({
         type: String,
         default: "Kautilya Hall",
     },
+    hostelFeeStatus: {
+        type: String,
+        enum: ["pending", "paid", "waived"],
+        default: "pending",
+    },
+    messFeeStatus: {
+        type: String,
+        enum: ["pending", "paid", "waived"],
+        default: "pending",
+    },
+    hostelFeePaidOn: {
+        type: Date,
+        default: null,
+    },
+    messFeePaidOn: {
+        type: Date,
+        default: null,
+    },
     allotmentDate: {
         type: Date,
         default: Date.now,
     },
 }, { timestamps: true });
+
+allottedStudentSchema.index({ userId: 1 }, { unique: true });
+allottedStudentSchema.index({ allottedRoomNumber: 1, allottedBedId: 1 }, { unique: true });
+allottedStudentSchema.index({ allottedHostelType: 1, allottedRoomType: 1 });
+allottedStudentSchema.index({ hostelFeeStatus: 1 });
+allottedStudentSchema.index({ messFeeStatus: 1 });
 
 // Important: If you previously had a unique index on rollNumber in MongoDB,
 // you'll need to manually drop it from the collection using the mongo shell or an admin tool.

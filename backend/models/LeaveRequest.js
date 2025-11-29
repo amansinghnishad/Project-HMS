@@ -16,4 +16,8 @@ const LeaveRequestSchema = new mongoose.Schema({
   resolvedAt: { type: Date }
 }, { timestamps: true });
 
+LeaveRequestSchema.index({ studentId: 1, createdAt: -1 });
+LeaveRequestSchema.index({ status: 1, createdAt: -1 });
+LeaveRequestSchema.index({ resolvedBy: 1, resolvedAt: -1 });
+
 module.exports = mongoose.model("LeaveRequest", LeaveRequestSchema);

@@ -22,4 +22,8 @@ const MaintenanceRequestSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 
+MaintenanceRequestSchema.index({ userId: 1, createdAt: -1 });
+MaintenanceRequestSchema.index({ status: 1, priority: 1, createdAt: -1 });
+MaintenanceRequestSchema.index({ resolvedBy: 1, resolvedAt: -1 });
+
 module.exports = mongoose.model("MaintenanceRequest", MaintenanceRequestSchema);

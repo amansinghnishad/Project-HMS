@@ -1,5 +1,5 @@
-const express = require('express');
-const router = express.Router();
+const express = require("express");
+
 const {
   upload,
   createNotice,
@@ -8,33 +8,22 @@ const {
   getNoticeById,
   updateNotice,
   deleteNotice,
-  publishNotice
-} = require('../controllers/publicNoticeController');
-const { auth } = require('../middleware/auth');
+  publishNotice,
+} = require("../controllers/publicNoticeController");
+const { auth, isProvostOrChief } = require("../middleware/auth");
 
-// Public routes (no authentication required)
-router.get('/published', getPublishedNotices);
-router.get('/public/:id', getNoticeById);
+const router = express.Router();
 
-// Protected routes (authentication required)
-router.use(auth);
+router.get("/published", getPublishedNotices);
+router.get("/public/:id", getNoticeById);
 
-// Create a new notice with file upload
-router.post('/', upload.array('attachments', 5), createNotice);
+router.use(auth, isProvostOrChief);
 
-// Get all notices (for admin/provost)
-router.get('/', getAllNotices);
-
-// Get specific notice
-router.get('/:id', getNoticeById);
-
-// Update notice
-router.put('/:id', upload.array('attachments', 5), updateNotice);
-
-// Delete notice
-router.delete('/:id', deleteNotice);
-
-// Publish a draft notice
-router.patch('/:id/publish', publishNotice);
+router.post("/", upload.array("attachments", 5), createNotice);
+router.get("/", getAllNotices);
+router.get("/:id", getNoticeById);
+router.put("/:id", upload.array("attachments", 5), updateNotice);
+router.delete("/:id", deleteNotice);
+router.patch("/:id/publish", publishNotice);
 
 module.exports = router;

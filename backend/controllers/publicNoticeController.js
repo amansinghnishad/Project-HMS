@@ -1,115 +1,135 @@
-const PublicNotice = require('../models/PublicNotice');
-const User = require('../models/User');
-const multer = require('multer');
-const puppeteer = require('puppeteer');
-const path = require('path');
-const fs = require('fs');
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
+const puppeteer = require("puppeteer");
+const mongoose = require("mongoose");
+const PublicNotice = require("../models/PublicNotice");
+const User = require("../models/User");
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '../uploads/notices');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+const { isValidObjectId } = mongoose;
+
+const NOTICE_STATUSES = Object.freeze(["draft", "published", "archived"]);
+const NOTICE_CATEGORIES = Object.freeze([
+  "Academic",
+  "Administrative",
+  "Events",
+  "Facilities",
+  "Emergency",
+  "General",
+]);
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 200;
+const NOTICE_UPLOAD_ROOT = path.join(__dirname, "../uploads/notices");
+const NOTICE_PDF_DIR = path.join(NOTICE_UPLOAD_ROOT, "pdfs");
+
+const ensureDirectory = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
   }
+};
+
+ensureDirectory(NOTICE_UPLOAD_ROOT);
+ensureDirectory(NOTICE_PDF_DIR);
+
+const sanitizeText = (value) => (typeof value === "string" ? value.trim() : "");
+
+const normalizeBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes"].includes(normalized)) return true;
+    if (["false", "0", "no"].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
+const parseDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
+const validateNoticeStatus = (status) =>
+  NOTICE_STATUSES.includes(status) ? status : null;
+
+const validateNoticeCategory = (category) =>
+  NOTICE_CATEGORIES.includes(category) ? category : null;
+
+const buildPagination = ({ page, limit, total }) => ({
+  page,
+  limit,
+  total,
+  totalPages: Math.ceil(total / limit) || 1,
+});
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    ensureDirectory(NOTICE_UPLOAD_ROOT);
+    cb(null, NOTICE_UPLOAD_ROOT);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
 });
 
 const fileFilter = (req, file, cb) => {
-  // Accept PDF files and images
-  if (file.mimetype === 'application/pdf' ||
-    file.mimetype.startsWith('image/')) {
+  if (file.mimetype === "application/pdf" || file.mimetype.startsWith("image/")) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF and image files are allowed!'), false);
+    cb(new Error("Only PDF and image files are allowed."));
   }
 };
 
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  }
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// Generate PDF from notice content
+const removeFileIfExists = (filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error("File removal failed:", error);
+  }
+};
+
+// Generates and stores a nicely formatted PDF for a notice.
 const generateNoticePDF = async (notice) => {
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     const page = await browser.newPage();
-
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
-        <meta charset="UTF-8">
+        <meta charset="UTF-8" />
         <title>Public Notice</title>
         <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            line-height: 1.6; 
-            color: #333; 
-            max-width: 800px; 
-            margin: 0 auto; 
-            padding: 20px;
-          }
-          .header { 
-            text-align: center; 
-            border-bottom: 2px solid #0d7377; 
-            padding-bottom: 20px; 
-            margin-bottom: 30px;
-          }
-          .title { 
-            color: #0d7377; 
-            font-size: 24px; 
-            font-weight: bold; 
-            margin-bottom: 10px;
-          }
-          .meta { 
-            color: #666; 
-            font-size: 14px; 
-            margin-bottom: 20px;
-          }
-          .category { 
-            background: #0d7377; 
-            color: white; 
-            padding: 5px 15px; 
-            border-radius: 20px; 
-            font-size: 12px; 
-            display: inline-block;
-          }
-          .important { 
-            background: #dc3545; 
-            color: white; 
-            padding: 5px 15px; 
-            border-radius: 20px; 
-            font-size: 12px; 
-            display: inline-block; 
-            margin-left: 10px;
-          }
-          .content { 
-            margin: 30px 0; 
-            line-height: 1.8;
-          }
-          .footer { 
-            margin-top: 40px; 
-            padding-top: 20px; 
-            border-top: 1px solid #ddd; 
-            font-size: 12px; 
-            color: #666;
-          }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+          .header { text-align: center; border-bottom: 2px solid #0d7377; padding-bottom: 20px; margin-bottom: 30px; }
+          .title { color: #0d7377; font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+          .meta { color: #666; font-size: 14px; margin-bottom: 20px; }
+          .category { background: #0d7377; color: #fff; padding: 5px 15px; border-radius: 20px; font-size: 12px; display: inline-block; }
+          .important { background: #dc3545; color: #fff; padding: 5px 15px; border-radius: 20px; font-size: 12px; display: inline-block; margin-left: 10px; }
+          .content { margin: 30px 0; line-height: 1.8; white-space: pre-wrap; }
+          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
         </style>
       </head>
       <body>
@@ -117,22 +137,16 @@ const generateNoticePDF = async (notice) => {
           <h1>HOSTEL MANAGEMENT SYSTEM</h1>
           <p>Public Notice</p>
         </div>
-        
         <div class="title">${notice.title}</div>
-        
         <div class="meta">
           <span class="category">${notice.category}</span>
-          ${notice.isImportant ? '<span class="important">IMPORTANT</span>' : ''}
-          <br><br>
-          <strong>Effective Date:</strong> ${new Date(notice.effectiveDate).toLocaleDateString()}<br>
-          ${notice.expiryDate ? `<strong>Expiry Date:</strong> ${new Date(notice.expiryDate).toLocaleDateString()}<br>` : ''}
+          ${notice.isImportant ? '<span class="important">IMPORTANT</span>' : ""}
+          <br /><br />
+          <strong>Effective Date:</strong> ${new Date(notice.effectiveDate).toLocaleDateString()}<br />
+          ${notice.expiryDate ? `<strong>Expiry Date:</strong> ${new Date(notice.expiryDate).toLocaleDateString()}<br />` : ""}
           <strong>Published:</strong> ${new Date(notice.publishedAt || notice.createdAt).toLocaleDateString()}
         </div>
-        
-        <div class="content">
-          ${notice.content.replace(/\n/g, '<br>')}
-        </div>
-        
+        <div class="content">${notice.content.replace(/\n/g, "<br />")}</div>
         <div class="footer">
           <p>This is an official notice from the Hostel Management System.</p>
           <p>Generated on: ${new Date().toLocaleString()}</p>
@@ -141,32 +155,21 @@ const generateNoticePDF = async (notice) => {
       </html>
     `;
 
-    await page.setContent(html);
+    await page.setContent(html, { waitUntil: "networkidle0" });
 
-    const pdfPath = path.join(__dirname, '../uploads/notices/pdfs');
-    if (!fs.existsSync(pdfPath)) {
-      fs.mkdirSync(pdfPath, { recursive: true });
-    }
-
-    const filename = `notice-${notice._id}-${Date.now()}.pdf`;
-    const fullPath = path.join(pdfPath, filename);
-
+    const fileName = `notice-${notice._id}-${Date.now()}.pdf`;
+    const fullPath = path.join(NOTICE_PDF_DIR, fileName);
     await page.pdf({
       path: fullPath,
-      format: 'A4',
+      format: "A4",
       printBackground: true,
-      margin: {
-        top: '20mm',
-        right: '20mm',
-        bottom: '20mm',
-        left: '20mm'
-      }
+      margin: { top: "20mm", right: "20mm", bottom: "20mm", left: "20mm" },
     });
 
-    return `uploads/notices/pdfs/${filename}`;
+    return `uploads/notices/pdfs/${fileName}`;
   } catch (error) {
-    console.error('PDF generation error:', error);
-    throw new Error('Failed to generate PDF');
+    console.error("generateNoticePDF error:", error);
+    throw new Error("Failed to generate notice PDF.");
   } finally {
     if (browser) {
       await browser.close();
@@ -174,367 +177,359 @@ const generateNoticePDF = async (notice) => {
   }
 };
 
-// Create a new public notice
+const populateAuthor = (query) => query.populate("author", "firstName lastName email role");
+
+const attachmentFromFile = (file) => ({
+  filename: file.filename,
+  originalName: file.originalname,
+  path: file.path,
+  size: file.size,
+  mimetype: file.mimetype,
+});
+
+const appendAttachments = (existing = [], files = []) => existing.concat(files.map(attachmentFromFile));
+
+const validateAuthor = (notice, userId) => notice.author.toString() === userId;
+
+const normalizeAndValidateNoticePayload = ({
+  title,
+  content,
+  category,
+  effectiveDate,
+  expiryDate,
+  isImportant,
+  status,
+}) => {
+  const normalized = {
+    title: sanitizeText(title),
+    content: sanitizeText(content),
+    category: sanitizeText(category),
+    effectiveDate: parseDate(effectiveDate),
+    expiryDate: parseDate(expiryDate),
+    isImportant: normalizeBoolean(isImportant, false),
+    status: sanitizeText(status) || "draft",
+  };
+
+  if (!normalized.title || !normalized.content) {
+    return { error: "Title and content are required." };
+  }
+
+  if (!validateNoticeCategory(normalized.category)) {
+    return { error: "Invalid notice category provided." };
+  }
+
+  if (!normalized.effectiveDate) {
+    return { error: "A valid effective date is required." };
+  }
+
+  if (!validateNoticeStatus(normalized.status)) {
+    return { error: "Invalid notice status provided." };
+  }
+
+  if (normalized.expiryDate && normalized.expiryDate < normalized.effectiveDate) {
+    return { error: "Expiry date cannot be before the effective date." };
+  }
+
+  return { payload: normalized };
+};
+
+const buildNoticeFilter = ({ status, category, search }) => {
+  const filter = {};
+
+  const normalizedStatus = sanitizeText(status);
+  if (normalizedStatus) {
+    if (!validateNoticeStatus(normalizedStatus)) {
+      return { error: "Invalid status filter provided." };
+    }
+    filter.status = normalizedStatus;
+  }
+
+  const normalizedCategory = sanitizeText(category);
+  if (normalizedCategory) {
+    if (!validateNoticeCategory(normalizedCategory)) {
+      return { error: "Invalid category filter provided." };
+    }
+    filter.category = normalizedCategory;
+  }
+
+  const searchTerm = sanitizeText(search);
+  if (searchTerm) {
+    filter.$or = [
+      { title: { $regex: searchTerm, $options: "i" } },
+      { content: { $regex: searchTerm, $options: "i" } },
+    ];
+  }
+
+  return { filter };
+};
+
+const handlePdfGeneration = async (notice) => {
+  try {
+    const pdfPath = await generateNoticePDF(notice);
+    notice.pdfPath = pdfPath;
+    await notice.save();
+  } catch (pdfError) {
+    console.error("Notice PDF generation failed:", pdfError);
+  }
+};
+
+const removeNoticeFiles = (notice) => {
+  (notice.attachments || []).forEach((attachment) => removeFileIfExists(attachment.path));
+  if (notice.pdfPath) {
+    removeFileIfExists(path.join(__dirname, "..", notice.pdfPath));
+  }
+};
+
+// Creates a new public notice entry.
 const createNotice = async (req, res) => {
   try {
-    const { title, content, category, effectiveDate, expiryDate, isImportant, status } = req.body;
-
-    const noticeData = {
-      title,
-      content,
-      category,
-      author: req.user.id,
-      effectiveDate: new Date(effectiveDate),
-      isImportant: isImportant === 'true',
-      status: status || 'draft'
-    };
-
-    if (expiryDate) {
-      noticeData.expiryDate = new Date(expiryDate);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required." });
     }
 
-    // Handle file attachments
-    if (req.files && req.files.length > 0) {
-      noticeData.attachments = req.files.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype
-      }));
+    const validation = normalizeAndValidateNoticePayload(req.body || {});
+    if (validation.error) {
+      return res.status(400).json({ success: false, message: validation.error });
     }
 
-    const notice = new PublicNotice(noticeData);
-    await notice.save();
-
-    // Generate PDF if status is published
-    if (status === 'published') {
-      try {
-        const pdfPath = await generateNoticePDF(notice);
-        notice.pdfPath = pdfPath;
-        await notice.save();
-      } catch (pdfError) {
-        console.error('PDF generation failed:', pdfError);
-        // Continue without PDF if generation fails
-      }
+    const author = await User.findById(userId);
+    if (!author) {
+      return res.status(404).json({ success: false, message: "Author profile not found." });
     }
 
-    await notice.populate('author', 'firstName lastName email');
+    const notice = await PublicNotice.create({
+      ...validation.payload,
+      author: userId,
+      attachments: appendAttachments([], req.files || []),
+    });
+
+    if (notice.status === "published") {
+      await handlePdfGeneration(notice);
+    }
+
+    await populateAuthor(notice.populate("author"));
 
     res.status(201).json({
       success: true,
-      message: 'Notice created successfully',
-      notice
+      message: "Notice created successfully.",
+      notice,
     });
   } catch (error) {
-    console.error('Create notice error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create notice',
-      error: error.message
-    });
+    console.error("createNotice error:", error);
+    res.status(500).json({ success: false, message: "Failed to create notice." });
   }
 };
 
-// Get all notices (with filters)
+// Lists all notices with optional filters and pagination.
 const getAllNotices = async (req, res) => {
   try {
-    const { status, category, page = 1, limit = 10, search } = req.query;
+    const page = parsePositiveInt(req.query?.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query?.limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const skip = (page - 1) * limit;
 
-    const filter = {};
-    if (status) filter.status = status;
-    if (category) filter.category = category;
-    if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { content: { $regex: search, $options: 'i' } }
-      ];
+    const { filter, error } = buildNoticeFilter({
+      status: req.query?.status,
+      category: req.query?.category,
+      search: req.query?.search,
+    });
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
     }
 
-    const notices = await PublicNotice.find(filter)
-      .populate('author', 'firstName lastName email')
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const [notices, total] = await Promise.all([
+      populateAuthor(
+        PublicNotice.find(filter).sort({ publishedAt: -1, createdAt: -1 }).skip(skip).limit(limit)
+      ).lean({ getters: true }),
+      PublicNotice.countDocuments(filter),
+    ]);
 
-    const total = await PublicNotice.countDocuments(filter);
-
-    res.json({
+    res.status(200).json({
       success: true,
       notices,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalNotices: total
-      }
+      pagination: buildPagination({ page, limit, total }),
     });
   } catch (error) {
-    console.error('Get notices error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notices',
-      error: error.message
-    });
+    console.error("getAllNotices error:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve notices." });
   }
 };
 
-// Get published notices for public view
+// Lists published notices for public consumption.
 const getPublishedNotices = async (req, res) => {
   try {
-    const { category, page = 1, limit = 10, activeOnly } = req.query;
+    const page = parsePositiveInt(req.query?.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query?.limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const skip = (page - 1) * limit;
 
-    const filter = {
-      status: 'published'
-    };
+    const normalizedCategory = sanitizeText(req.query?.category);
+    const activeOnly = normalizeBoolean(req.query?.activeOnly, false);
 
-    if (category) filter.category = category;
+    if (normalizedCategory && !validateNoticeCategory(normalizedCategory)) {
+      return res.status(400).json({ success: false, message: "Invalid category filter provided." });
+    }
 
-    // If activeOnly is requested, apply date filters
-    if (activeOnly === 'true') {
-      filter.effectiveDate = { $lte: new Date() };
+    const filter = { status: "published" };
+    if (normalizedCategory) {
+      filter.category = normalizedCategory;
+    }
+
+    if (activeOnly) {
+      const now = new Date();
+      filter.effectiveDate = { $lte: now };
       filter.$or = [
         { expiryDate: { $exists: false } },
         { expiryDate: null },
-        { expiryDate: { $gte: new Date() } }
+        { expiryDate: { $gte: now } },
       ];
     }
 
-    const notices = await PublicNotice.find(filter)
-      .populate('author', 'firstName lastName')
-      .sort({ isImportant: -1, publishedAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const [notices, total] = await Promise.all([
+      populateAuthor(
+        PublicNotice.find(filter).sort({ isImportant: -1, publishedAt: -1 }).skip(skip).limit(limit)
+      ).lean({ getters: true }),
+      PublicNotice.countDocuments(filter),
+    ]);
 
-    const total = await PublicNotice.countDocuments(filter);
-
-    res.json({
+    res.status(200).json({
       success: true,
       notices,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalNotices: total
-      }
+      pagination: buildPagination({ page, limit, total }),
     });
   } catch (error) {
-    console.error('Get published notices error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch published notices',
-      error: error.message
-    });
+    console.error("getPublishedNotices error:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve published notices." });
   }
 };
 
-// Get a single notice by ID
+// Retrieves a single notice by id and tracks views.
 const getNoticeById = async (req, res) => {
   try {
-    const notice = await PublicNotice.findById(req.params.id)
-      .populate('author', 'firstName lastName email');
-
-    if (!notice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Notice not found'
-      });
+    const noticeId = req.params?.id;
+    if (!isValidObjectId(noticeId)) {
+      return res.status(400).json({ success: false, message: "Invalid notice id provided." });
     }
 
-    // Increment view count for published notices
-    if (notice.status === 'published') {
+    const notice = await populateAuthor(PublicNotice.findById(noticeId));
+    if (!notice) {
+      return res.status(404).json({ success: false, message: "Notice not found." });
+    }
+
+    if (notice.status === "published") {
       notice.views += 1;
       await notice.save();
     }
 
-    res.json({
-      success: true,
-      notice
-    });
+    res.status(200).json({ success: true, notice });
   } catch (error) {
-    console.error('Get notice by ID error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notice',
-      error: error.message
-    });
+    console.error("getNoticeById error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch notice." });
   }
 };
 
-// Update a notice
+// Updates an existing notice owned by the requester.
 const updateNotice = async (req, res) => {
   try {
-    const { title, content, category, effectiveDate, expiryDate, isImportant, status } = req.body;
+    const noticeId = req.params?.id;
+    if (!isValidObjectId(noticeId)) {
+      return res.status(400).json({ success: false, message: "Invalid notice id provided." });
+    }
 
-    const notice = await PublicNotice.findById(req.params.id);
+    const notice = await PublicNotice.findById(noticeId);
     if (!notice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Notice not found'
-      });
+      return res.status(404).json({ success: false, message: "Notice not found." });
     }
 
-    // Check if user is the author
-    if (notice.author.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this notice'
-      });
+    if (!validateAuthor(notice, req.user?.id)) {
+      return res.status(403).json({ success: false, message: "Not authorized to update this notice." });
     }
 
-    // Update fields
-    if (title) notice.title = title;
-    if (content) notice.content = content;
-    if (category) notice.category = category;
-    if (effectiveDate) notice.effectiveDate = new Date(effectiveDate);
-    if (expiryDate) notice.expiryDate = new Date(expiryDate);
-    if (typeof isImportant !== 'undefined') notice.isImportant = isImportant === 'true';
-    if (status) notice.status = status;
-
-    // Handle new file attachments
-    if (req.files && req.files.length > 0) {
-      const newAttachments = req.files.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype
-      }));
-      notice.attachments = [...notice.attachments, ...newAttachments];
+    const validation = normalizeAndValidateNoticePayload({ ...notice.toObject(), ...req.body });
+    if (validation.error) {
+      return res.status(400).json({ success: false, message: validation.error });
     }
 
+    Object.assign(notice, validation.payload);
+    notice.attachments = appendAttachments(notice.attachments, req.files || []);
     await notice.save();
 
-    // Regenerate PDF if status changed to published or if content changed
-    if (status === 'published') {
-      try {
-        const pdfPath = await generateNoticePDF(notice);
-        notice.pdfPath = pdfPath;
-        await notice.save();
-      } catch (pdfError) {
-        console.error('PDF generation failed:', pdfError);
-      }
+    if (notice.status === "published") {
+      await handlePdfGeneration(notice);
     }
 
-    await notice.populate('author', 'firstName lastName email');
+    await populateAuthor(notice.populate("author"));
 
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Notice updated successfully',
-      notice
+      message: "Notice updated successfully.",
+      notice,
     });
   } catch (error) {
-    console.error('Update notice error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update notice',
-      error: error.message
-    });
+    console.error("updateNotice error:", error);
+    res.status(500).json({ success: false, message: "Failed to update notice." });
   }
 };
 
-// Delete a notice
+// Deletes a notice and associated files.
 const deleteNotice = async (req, res) => {
   try {
-    const notice = await PublicNotice.findById(req.params.id);
+    const noticeId = req.params?.id;
+    if (!isValidObjectId(noticeId)) {
+      return res.status(400).json({ success: false, message: "Invalid notice id provided." });
+    }
+
+    const notice = await PublicNotice.findById(noticeId);
     if (!notice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Notice not found'
-      });
+      return res.status(404).json({ success: false, message: "Notice not found." });
     }
 
-    // Check if user is the author
-    if (notice.author.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this notice'
-      });
+    if (!validateAuthor(notice, req.user?.id)) {
+      return res.status(403).json({ success: false, message: "Not authorized to delete this notice." });
     }
 
-    // Delete associated files
-    notice.attachments.forEach(attachment => {
-      try {
-        if (fs.existsSync(attachment.path)) {
-          fs.unlinkSync(attachment.path);
-        }
-      } catch (error) {
-        console.error('Error deleting attachment:', error);
-      }
-    });
+    removeNoticeFiles(notice);
+    await PublicNotice.findByIdAndDelete(noticeId);
 
-    // Delete PDF file
-    if (notice.pdfPath) {
-      try {
-        const fullPdfPath = path.join(__dirname, '..', notice.pdfPath);
-        if (fs.existsSync(fullPdfPath)) {
-          fs.unlinkSync(fullPdfPath);
-        }
-      } catch (error) {
-        console.error('Error deleting PDF:', error);
-      }
-    }
-
-    await PublicNotice.findByIdAndDelete(req.params.id);
-
-    res.json({
-      success: true,
-      message: 'Notice deleted successfully'
-    });
+    res.status(200).json({ success: true, message: "Notice deleted successfully." });
   } catch (error) {
-    console.error('Delete notice error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete notice',
-      error: error.message
-    });
+    console.error("deleteNotice error:", error);
+    res.status(500).json({ success: false, message: "Failed to delete notice." });
   }
 };
 
-// Publish a draft notice
+// Publishes a draft notice owned by the requester.
 const publishNotice = async (req, res) => {
   try {
-    const notice = await PublicNotice.findById(req.params.id);
+    const noticeId = req.params?.id;
+    if (!isValidObjectId(noticeId)) {
+      return res.status(400).json({ success: false, message: "Invalid notice id provided." });
+    }
+
+    const notice = await PublicNotice.findById(noticeId);
     if (!notice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Notice not found'
-      });
+      return res.status(404).json({ success: false, message: "Notice not found." });
     }
 
-    // Check if user is the author
-    if (notice.author.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to publish this notice'
-      });
+    if (!validateAuthor(notice, req.user?.id)) {
+      return res.status(403).json({ success: false, message: "Not authorized to publish this notice." });
     }
 
-    notice.status = 'published';
+    notice.status = "published";
     notice.publishedAt = new Date();
     await notice.save();
 
-    // Generate PDF
-    try {
-      const pdfPath = await generateNoticePDF(notice);
-      notice.pdfPath = pdfPath;
-      await notice.save();
-    } catch (pdfError) {
-      console.error('PDF generation failed:', pdfError);
-    }
+    await handlePdfGeneration(notice);
+    await populateAuthor(notice.populate("author"));
 
-    await notice.populate('author', 'firstName lastName email');
-
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Notice published successfully',
-      notice
+      message: "Notice published successfully.",
+      notice,
     });
   } catch (error) {
-    console.error('Publish notice error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to publish notice',
-      error: error.message
-    });
+    console.error("publishNotice error:", error);
+    res.status(500).json({ success: false, message: "Failed to publish notice." });
   }
 };
 
@@ -546,5 +541,5 @@ module.exports = {
   getNoticeById,
   updateNotice,
   deleteNotice,
-  publishNotice
+  publishNotice,
 };
