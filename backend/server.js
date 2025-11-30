@@ -20,8 +20,10 @@ dataBase.connect();
 app.use(cors({
   origin: [
     'http://localhost:5173', // local frontend
-    , 'https://project-hms-beta.vercel.app' // deployed frontend
-  ],
+    'https://project-hms-beta.vercel.app',
+    'https://project-28ljxxyuw-amansinghnishads-projects.vercel.app',
+    process.env.FRONTEND_ORIGIN
+  ].filter(Boolean),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
     'Content-Type',
@@ -56,6 +58,16 @@ app.use('/api/allotment', allotmentRoutes); // Added allotment routes
 app.use("/api/payment", paymentRoutes); // Added payment routes
 app.use("/api/notices", noticeRoutes); // Added notice routes
 app.use("/api/public-notices", publicNoticeRoutes); // Added public notice routes
+
+// Backward compatibility for clients still using /auth, /feedback, etc.
+app.use("/auth", authRoutes);
+app.use('/feedback', feedbackRoutes);
+app.use('/leave', leaveRoutes);
+app.use('/service-requests', maintenanceRoutes);
+app.use('/allotment', allotmentRoutes);
+app.use("/payment", paymentRoutes);
+app.use("/notices", noticeRoutes);
+app.use("/public-notices", publicNoticeRoutes);
 
 // 404 handler
 app.use((req, res, next) => {
