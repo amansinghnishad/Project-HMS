@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
-import DashboardLayout from "../../../components/dashboard/layout/DashboardLayout";
+import DashboardLayout from "../../../components/Dashboard/layout/DashboardLayout";
 import { studentLayoutConfig } from "../config/studentLayoutConfig";
 
 const StudentLayout = () => {

@@ -1,47 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  FaCalendarAlt,
-  FaPaperPlane,
-  FaSpinner,
-  FaExclamationTriangle,
-  FaTimes,
-} from "react-icons/fa";
+import { FaCalendarAlt, FaPaperPlane, FaSpinner } from "react-icons/fa";
 import { HiPlusSm } from "react-icons/hi";
 import { toast } from "react-hot-toast";
+import StudentDashboardLayout from "../../../components/dashboard/layout/StudentDashboardLayout";
+import ModalLayout from "../../../components/dashboard/layout/Model.layout";
 import { leaveService } from "../../../services/api";
+import {
+  DESCRIPTION_LIMIT,
+  LEAVE_TYPES,
+  STATUS_FILTERS,
+} from "./config/leave.config";
 
-const LEAVE_TYPES = [
-  {
-    value: "sick",
-    label: "Sick",
-    helper: "Doctor visits, recovery, health concerns",
-  },
-  {
-    value: "emergency",
-    label: "Emergency",
-    helper: "Family emergencies or urgent matters",
-  },
-  {
-    value: "personal",
-    label: "Personal",
-    helper: "Personal commitments or events",
-  },
-  {
-    value: "vacation",
-    label: "Vacation",
-    helper: "Planned time away from campus",
-  },
-  { value: "other", label: "Other", helper: "Anything else that needs leave" },
-];
-
-const STATUS_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
-];
-
-const DESCRIPTION_LIMIT = 500;
+const PRIMARY_BUTTON_CLASS =
+  "inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
 
 const LeaveApply = () => {
   const [formData, setFormData] = useState({
@@ -99,7 +70,7 @@ const LeaveApply = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setFormData({
       leaveType: LEAVE_TYPES[0].value,
       startDate: "",
@@ -107,7 +78,17 @@ const LeaveApply = () => {
       emergencyContact: "",
       reason: "",
     });
-  };
+  }, []);
+
+  const handleOpenModal = useCallback(() => {
+    resetForm();
+    setIsModalOpen(true);
+  }, [resetForm]);
+
+  const handleCloseModal = useCallback(() => {
+    resetForm();
+    setIsModalOpen(false);
+  }, [resetForm]);
 
   const validateForm = () => {
     if (
@@ -186,316 +167,274 @@ const LeaveApply = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <section className="rounded-3xl bg-white p-6 shadow-xl">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex items-center gap-4">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-                <FaCalendarAlt size={24} />
-              </span>
-              <div>
-                <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">
-                  Leave applications
-                </h1>
-                <p className="mt-1 text-sm text-gray-600">
-                  Submit a new request or review decisions from your provost.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                resetForm();
-                setIsModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600"
-            >
-              <HiPlusSm size={18} />
-              Apply for leave
-            </button>
-          </header>
-        </section>
+  const filtersNode = useMemo(
+    () => (
+      <>
+        <label className="flex items-center gap-2">
+          <span>Status</span>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          >
+            {STATUS_FILTERS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span>Type</span>
+          <select
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+          >
+            {[{ value: "all", label: "All" }, ...LEAVE_TYPES].map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </>
+    ),
+    [statusFilter, typeFilter]
+  );
 
-        <section className="rounded-3xl bg-white p-6 shadow-xl">
-          <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 md:text-xl">
-                Leave history
-              </h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Filters apply instantly.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3 text-sm text-gray-600">
-              <label className="flex items-center gap-2">
-                <span>Status</span>
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                >
-                  {STATUS_FILTERS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2">
-                <span>Type</span>
-                <select
-                  value={typeFilter}
-                  onChange={(event) => setTypeFilter(event.target.value)}
-                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                >
-                  {[{ value: "all", label: "All" }, ...LEAVE_TYPES].map(
-                    (option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    )
-                  )}
-                </select>
-              </label>
-            </div>
-          </header>
+  const primaryAction = useMemo(
+    () => ({
+      label: "Apply for leave",
+      icon: <HiPlusSm size={18} />,
+      onClick: handleOpenModal,
+      className: PRIMARY_BUTTON_CLASS,
+    }),
+    [handleOpenModal]
+  );
 
-          {error ? (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              <div className="flex items-center gap-2">
-                <FaExclamationTriangle />
-                <span>{error}</span>
-              </div>
-            </div>
-          ) : null}
+  const emptyState = useMemo(
+    () => ({
+      title: "No leave applications yet",
+      description:
+        "Use the Apply for leave button to submit your first request.",
+      action: (
+        <button
+          type="button"
+          onClick={handleOpenModal}
+          className={PRIMARY_BUTTON_CLASS}
+        >
+          <HiPlusSm size={18} />
+          <span>Apply for leave</span>
+        </button>
+      ),
+    }),
+    [handleOpenModal]
+  );
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 text-sm text-gray-600">
-              <FaSpinner className="mr-2 animate-spin" />
-              Loading your leave requests…
-            </div>
-          ) : leaveRequests.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-10 text-center text-sm text-gray-600">
-              No leave applications found. Use the button above to submit one.
-            </div>
-          ) : (
-            <ul className="mt-6 space-y-4">
-              {leaveRequests.map((request, index) => (
-                <li
-                  key={
-                    request?._id ||
-                    `${request.leaveType}-${request.createdAt}-${index}`
-                  }
-                  className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 transition hover:border-emerald-200 hover:shadow-md"
-                >
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">
-                          {formatLeaveType(request?.leaveType)} leave
-                        </p>
-                        <p className="mt-1 text-sm text-gray-600">
-                          {formatDateRange(
-                            request?.fromDate || request?.startDate,
-                            request?.toDate || request?.endDate
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-600">
-                          {request?.reason}
-                        </p>
-                      </div>
-                      <span
-                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(
-                          request?.status
-                        )}`}
-                      >
-                        {formatStatusLabel(request?.status)}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                      <span>
-                        Emergency contact: {request?.emergencyContact || "—"}
-                      </span>
-                      <span>
-                        Applied:{" "}
-                        {formatDateTime(
-                          request?.createdAt || request?.submittedAt
-                        )}
-                      </span>
-                      {request?.resolvedAt ? (
-                        <span>
-                          Resolved: {formatDateTime(request.resolvedAt)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {request?.provostComments || request?.adminComments ? (
-                      <div className="rounded-2xl bg-white/70 p-3 text-sm text-gray-600">
-                        <span className="font-semibold text-gray-700">
-                          Provost note:{" "}
-                        </span>
-                        {request.provostComments || request.adminComments}
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-gray-900/50"
-            onClick={() => setIsModalOpen(false)}
-          />
-          <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-                  <FaCalendarAlt size={20} />
-                </span>
+  const leaveHistoryContent = useMemo(
+    () => (
+      <ul className="space-y-4">
+        {leaveRequests.map((request, index) => (
+          <li
+            key={
+              request?._id ||
+              `${request.leaveType}-${request.createdAt}-${index}`
+            }
+            className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 transition hover:border-emerald-200 hover:shadow-md"
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Apply for leave
-                  </h2>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {formatLeaveType(request?.leaveType)} leave
+                  </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Complete the form to submit your request.
+                    {formatDateRange(
+                      request?.fromDate || request?.startDate,
+                      request?.toDate || request?.endDate
+                    )}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {request?.reason}
                   </p>
                 </div>
+                <span
+                  className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(
+                    request?.status
+                  )}`}
+                >
+                  {formatStatusLabel(request?.status)}
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
-                aria-label="Close"
-              >
-                <FaTimes />
-              </button>
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                <span>
+                  Emergency contact: {request?.emergencyContact || "—"}
+                </span>
+                <span>
+                  Applied:{" "}
+                  {formatDateTime(request?.createdAt || request?.submittedAt)}
+                </span>
+                {request?.resolvedAt ? (
+                  <span>Resolved: {formatDateTime(request.resolvedAt)}</span>
+                ) : null}
+              </div>
+
+              {request?.provostComments || request?.adminComments ? (
+                <div className="rounded-2xl bg-white/70 p-3 text-sm text-gray-600">
+                  <span className="font-semibold text-gray-700">
+                    Provost note:{" "}
+                  </span>
+                  {request.provostComments || request.adminComments}
+                </div>
+              ) : null}
             </div>
+          </li>
+        ))}
+      </ul>
+    ),
+    [leaveRequests]
+  );
 
-            <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-              <label className="block text-sm font-medium text-gray-700">
-                Leave type *
-                <select
-                  name="leaveType"
-                  value={formData.leaveType}
-                  onChange={handleInputChange}
-                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  required
-                >
-                  {LEAVE_TYPES.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-2 block text-xs text-gray-500">
-                  {selectedType?.helper}
-                </span>
-              </label>
+  return (
+    <>
+      <StudentDashboardLayout
+        headerIcon={FaCalendarAlt}
+        title="Leave applications"
+        description="Submit a new request or review decisions from your provost."
+        primaryAction={primaryAction}
+        sectionTitle="Leave history"
+        sectionDescription="Filters apply instantly."
+        filters={filtersNode}
+        isLoading={isLoading}
+        loadingText="Loading your leave requests…"
+        errorMessage={error}
+        hasContent={leaveRequests.length > 0}
+        emptyState={leaveRequests.length > 0 ? null : emptyState}
+      >
+        {leaveHistoryContent}
+      </StudentDashboardLayout>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Start date *
-                  <input
-                    type="date"
-                    name="startDate"
-                    value={formData.startDate}
-                    onChange={handleInputChange}
-                    min={todayIso}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    required
-                  />
-                </label>
-                <label className="block text-sm font-medium text-gray-700">
-                  End date *
-                  <input
-                    type="date"
-                    name="endDate"
-                    value={formData.endDate}
-                    onChange={handleInputChange}
-                    min={formData.startDate || todayIso}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    required
-                  />
-                </label>
-              </div>
+      <ModalLayout
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        icon={FaCalendarAlt}
+        title="Apply for leave"
+        description="Complete the form to submit your request."
+      >
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <label className="block text-sm font-medium text-gray-700">
+            Leave type *
+            <select
+              name="leaveType"
+              value={formData.leaveType}
+              onChange={handleInputChange}
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              required
+            >
+              {LEAVE_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+            <span className="mt-2 block text-xs text-gray-500">
+              {selectedType?.helper}
+            </span>
+          </label>
 
-              <label className="block text-sm font-medium text-gray-700">
-                Emergency contact *
-                <input
-                  type="tel"
-                  name="emergencyContact"
-                  value={formData.emergencyContact}
-                  onChange={handleInputChange}
-                  placeholder="Include country code if applicable"
-                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  required
-                />
-              </label>
-
-              <label className="block text-sm font-medium text-gray-700">
-                Reason for leave *
-                <textarea
-                  name="reason"
-                  value={formData.reason}
-                  onChange={(event) => {
-                    const nextValue = event.target.value.slice(
-                      0,
-                      DESCRIPTION_LIMIT
-                    );
-                    setFormData((prev) => ({ ...prev, reason: nextValue }));
-                  }}
-                  rows={5}
-                  placeholder="Provide context so the provost can approve quickly."
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  required
-                />
-                <span className="mt-1 block text-xs text-gray-500">
-                  {formData.reason.length}/{DESCRIPTION_LIMIT} characters
-                </span>
-              </label>
-
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetForm();
-                    setIsModalOpen(false);
-                  }}
-                  className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSubmitting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <FaSpinner className="animate-spin" />
-                      Submitting…
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center gap-2">
-                      <FaPaperPlane />
-                      Submit leave request
-                    </span>
-                  )}
-                </button>
-              </div>
-            </form>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Start date *
+              <input
+                type="date"
+                name="startDate"
+                value={formData.startDate}
+                onChange={handleInputChange}
+                min={todayIso}
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                required
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              End date *
+              <input
+                type="date"
+                name="endDate"
+                value={formData.endDate}
+                onChange={handleInputChange}
+                min={formData.startDate || todayIso}
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                required
+              />
+            </label>
           </div>
-        </div>
-      ) : null}
-    </div>
+
+          <label className="block text-sm font-medium text-gray-700">
+            Emergency contact *
+            <input
+              type="tel"
+              name="emergencyContact"
+              value={formData.emergencyContact}
+              onChange={handleInputChange}
+              placeholder="Include country code if applicable"
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              required
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-gray-700">
+            Reason for leave *
+            <textarea
+              name="reason"
+              value={formData.reason}
+              onChange={(event) => {
+                const nextValue = event.target.value.slice(
+                  0,
+                  DESCRIPTION_LIMIT
+                );
+                setFormData((prev) => ({ ...prev, reason: nextValue }));
+              }}
+              rows={5}
+              placeholder="Provide context so the provost can approve quickly."
+              className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              required
+            />
+            <span className="mt-1 block text-xs text-gray-500">
+              {formData.reason.length}/{DESCRIPTION_LIMIT} characters
+            </span>
+          </label>
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? (
+                <span className="flex items-center justify-center gap-2">
+                  <FaSpinner className="animate-spin" />
+                  Submitting…
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <FaPaperPlane />
+                  Submit leave request
+                </span>
+              )}
+            </button>
+          </div>
+        </form>
+      </ModalLayout>
+    </>
   );
 };
 
