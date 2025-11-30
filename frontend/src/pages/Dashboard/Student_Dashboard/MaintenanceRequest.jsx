@@ -1,671 +1,738 @@
-// components/MaintenanceRequest.js
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
-  FaCamera,
-  FaCheckCircle,
-  FaTimesCircle,
-  FaRedo,
   FaTools,
-  FaSpinner,
-  FaHistory,
-  FaExclamationTriangle,
   FaPaperPlane,
+  FaSpinner,
+  FaExclamationTriangle,
+  FaImage,
+  FaTimes,
+  FaSync,
 } from "react-icons/fa";
+import { HiPlusSm } from "react-icons/hi";
 import { toast } from "react-hot-toast";
 import { maintenanceService } from "../../../services/api";
 
+const REQUEST_TYPES = [
+  {
+    value: "plumbing",
+    label: "Plumbing",
+    helper: "Leaks, faucets, bathrooms, drainage issues",
+  },
+  {
+    value: "electrical",
+    label: "Electrical",
+    helper: "Power outages, switches, lighting problems",
+  },
+  {
+    value: "furniture",
+    label: "Furniture",
+    helper: "Beds, desks, chairs, storage repairs",
+  },
+  {
+    value: "cleaning",
+    label: "Cleaning",
+    helper: "Deep clean, pest control, sanitation",
+  },
+  {
+    value: "ac_cooling",
+    label: "AC / Cooling",
+    helper: "Air conditioning, fans, ventilation",
+  },
+  {
+    value: "network",
+    label: "Network / IT",
+    helper: "Wi-Fi, LAN, authentication issues",
+  },
+  {
+    value: "security",
+    label: "Security",
+    helper: "Door locks, windows, safety concerns",
+  },
+  {
+    value: "others",
+    label: "Other",
+    helper: "Anything else that needs attention",
+  },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+const STATUS_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "in-progress", label: "In progress" },
+  { value: "completed", label: "Completed" },
+];
+
+const DESCRIPTION_LIMIT = 500;
+
 const MaintenanceRequest = () => {
-  const [requestType, setRequestType] = useState("");
-  const [description, setDescription] = useState("");
+  const [requestType, setRequestType] = useState(REQUEST_TYPES[0].value);
   const [priority, setPriority] = useState("medium");
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionSuccess, setSubmissionSuccess] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-
-  // Camera related state
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
+  const [description, setDescription] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState(null);
-  const [stream, setStream] = useState(null);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [error, setError] = useState(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
-  const requestTypes = [
-    {
-      value: "plumbing",
-      label: "Plumbing",
-      icon: "🚿",
-      description: "Water leaks, pipe issues, toilet problems",
-    },
-    {
-      value: "electrical",
-      label: "Electrical",
-      icon: "💡",
-      description: "Power outages, switch issues, light problems",
-    },
-    {
-      value: "furniture",
-      label: "Furniture",
-      icon: "🪑",
-      description: "Bed, desk, chair repairs or replacement",
-    },
-    {
-      value: "cleaning",
-      label: "Cleaning",
-      icon: "🧹",
-      description: "Deep cleaning, pest control, sanitation",
-    },
-    {
-      value: "ac_cooling",
-      label: "AC/Cooling",
-      icon: "❄️",
-      description: "Air conditioning, fan issues, ventilation",
-    },
-    {
-      value: "network",
-      label: "Network/IT",
-      icon: "📶",
-      description: "Internet, WiFi, networking issues",
-    },
-    {
-      value: "security",
-      label: "Security",
-      icon: "🔒",
-      description: "Door locks, windows, safety concerns",
-    },
-    {
-      value: "others",
-      label: "Others",
-      icon: "🔧",
-      description: "Any other maintenance issues",
-    },
-  ];
+  const fileInputRef = useRef(null);
 
-  const priorityLevels = [
-    {
-      value: "low",
-      label: "Low",
-      color: "text-green-600 bg-green-100",
-      description: "Non-urgent, can wait",
-    },
-    {
-      value: "medium",
-      label: "Medium",
-      color: "text-yellow-600 bg-yellow-100",
-      description: "Moderate urgency",
-    },
-    {
-      value: "high",
-      label: "High",
-      color: "text-red-600 bg-red-100",
-      description: "Urgent, needs quick attention",
-    },
-  ];
-
-  // Fetch existing requests on component mount
   const fetchRequests = useCallback(async () => {
-    setLoading(true);
+    setLoadingRequests(true);
+    setError(null);
     try {
-      const response = await maintenanceService.fetchUserRequests();
+      const params = {};
+      if (statusFilter !== "all") {
+        params.status = statusFilter;
+      }
+      if (priorityFilter !== "all") {
+        params.priority = priorityFilter;
+      }
+      if (typeFilter !== "all") {
+        params.requestType = typeFilter;
+      }
+      const response = await maintenanceService.fetchUserRequests(params);
       setRequests(response?.data || []);
-      setError(null);
     } catch (err) {
-      console.error("Error fetching requests:", err);
-      setError(err?.message || "Failed to fetch maintenance requests.");
-      toast.error(err?.message || "Failed to fetch maintenance requests.");
+      console.error("Unable to load maintenance requests", err);
+      const message =
+        err?.message ||
+        err?.payload?.error ||
+        "Unable to load maintenance requests.";
+      setError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setLoadingRequests(false);
     }
-  }, []);
+  }, [priorityFilter, statusFilter, typeFilter]);
 
   useEffect(() => {
     fetchRequests();
   }, [fetchRequests]);
 
-  // Cleanup camera stream on component unmount
-  useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+  const selectedType = useMemo(
+    () => REQUEST_TYPES.find((type) => type.value === requestType),
+    [requestType]
+  );
+
+  const statusSummary = useMemo(() => {
+    if (!requests?.length) {
+      return {
+        total: 0,
+        pending: 0,
+        inProgress: 0,
+        completed: 0,
+        open: 0,
+      };
+    }
+
+    const summary = requests.reduce(
+      (acc, current) => {
+        acc.total += 1;
+        const normalized = current?.status?.toLowerCase();
+        if (normalized === "completed") {
+          acc.completed += 1;
+        } else if (normalized === "in-progress") {
+          acc.inProgress += 1;
+        } else {
+          acc.pending += 1;
+        }
+        return acc;
+      },
+      { total: 0, pending: 0, inProgress: 0, completed: 0, open: 0 }
+    );
+
+    summary.open = summary.pending + summary.inProgress;
+    return summary;
+  }, [requests]);
+
+  const latestActivity = useMemo(() => {
+    if (!requests?.length) {
+      return null;
+    }
+
+    const timestamps = requests
+      .map(
+        (request) =>
+          request?.updatedAt || request?.resolvedAt || request?.createdAt
+      )
+      .filter(Boolean)
+      .map((value) => {
+        const time = new Date(value).getTime();
+        return Number.isNaN(time) ? null : time;
+      })
+      .filter((time) => time !== null);
+
+    if (!timestamps.length) {
+      return null;
+    }
+
+    return new Date(Math.max(...timestamps)).toISOString();
+  }, [requests]);
+
+  const hasFilters =
+    statusFilter !== "all" || priorityFilter !== "all" || typeFilter !== "all";
+
+  const handlePhotoUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setPhotoDataUrl(null);
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file.");
+      return;
+    }
+
+    const MAX_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
+    if (file.size > MAX_SIZE_BYTES) {
+      toast.error("Please upload an image smaller than 3MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoDataUrl(reader.result?.toString() || null);
     };
-  }, [stream]);
-  useEffect(() => {
-    if (isCameraOpen && stream && videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [isCameraOpen, stream]);
+    reader.readAsDataURL(file);
+  };
 
-  const startCamera = async () => {
-    setCameraError(null);
-    setPhotoDataUrl(null); // Clear previous photo
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-      setIsCameraOpen(true);
-    } catch (err) {
-      console.error("Error accessing camera:", err);
-      setCameraError(
-        "Could not access camera. Please ensure permissions are granted and no other app is using it."
-      );
-      setIsCameraOpen(false);
+  const handleRemovePhoto = () => {
+    setPhotoDataUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   };
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+  const resetForm = () => {
+    setRequestType(REQUEST_TYPES[0].value);
+    setPriority("medium");
+    setDescription("");
+    setPhotoDataUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
-    setStream(null);
-    setIsCameraOpen(false);
   };
 
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const videoElement = videoRef.current;
-      const canvasElement = canvasRef.current;
-      canvasElement.width = videoElement.videoWidth;
-      canvasElement.height = videoElement.videoHeight;
-      const context = canvasElement.getContext("2d");
-      context.drawImage(
-        videoElement,
-        0,
-        0,
-        videoElement.videoWidth,
-        videoElement.videoHeight
-      );
-      const dataUrl = canvasElement.toDataURL("image/jpeg");
-      setPhotoDataUrl(dataUrl);
-      stopCamera();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!description.trim()) {
+      toast.error("Please describe the maintenance issue.");
+      return;
     }
-  };
-  // Handle form submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+
     setIsSubmitting(true);
-    setError(null);
-    setSubmissionSuccess(false);
-
-    const toastId = toast.loading("Submitting maintenance request...");
+    const toastId = toast.loading("Submitting request...");
 
     try {
-      const payload = { requestType, description, priority };
+      const payload = {
+        requestType,
+        priority,
+        description: description.trim(),
+      };
+
       if (photoDataUrl) {
         payload.photo = photoDataUrl;
       }
+
       const response = await maintenanceService.submitRequest(payload);
-      const newRequest = response?.data;
-      setRequests((prev) => (newRequest ? [newRequest, ...prev] : prev));
+      toast.success(response?.message || "Maintenance request submitted.", {
+        id: toastId,
+      });
 
-      toast.success(
-        response?.message || "Maintenance request submitted successfully!",
-        {
-          id: toastId,
-        }
-      );
-
-      // Reset form
-      setRequestType("");
-      setDescription("");
-      setPriority("medium");
-      setPhotoDataUrl(null);
-      setCameraError(null);
-      setSubmissionSuccess(true);
-
+      resetForm();
       await fetchRequests();
+      setIsFormOpen(false);
     } catch (err) {
-      setError(err.message || "Failed to submit request. Please try again.");
-      toast.error(err.message || "Failed to submit request", { id: toastId });
+      const message =
+        err?.message ||
+        err?.payload?.error ||
+        "Unable to submit maintenance request.";
+      toast.error(message, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "pending":
-        return "text-yellow-600 bg-yellow-100";
-      case "in-progress":
-        return "text-blue-600 bg-blue-100";
-      case "completed":
-        return "text-green-600 bg-green-100";
-      case "cancelled":
-        return "text-red-600 bg-red-100";
-      default:
-        return "text-gray-600 bg-gray-100";
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "pending":
-        return <FaExclamationTriangle className="w-3 h-3" />;
-      case "in-progress":
-        return <FaSpinner className="w-3 h-3 animate-spin" />;
-      case "completed":
-        return <FaCheckCircle className="w-3 h-3" />;
-      case "cancelled":
-        return <FaTimesCircle className="w-3 h-3" />;
-      default:
-        return <FaExclamationTriangle className="w-3 h-3" />;
-    }
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case "low":
-        return "text-green-600 bg-green-100";
-      case "medium":
-        return "text-yellow-600 bg-yellow-100";
-      case "high":
-        return "text-red-600 bg-red-100";
-      default:
-        return "text-gray-600 bg-gray-100";
-    }
-  };
   return (
-    <div className="p-4 sm:p-6 bg-gradient-to-br from-orange-50 to-red-100 min-h-screen">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-100 rounded-full mb-4">
-            <FaTools className="w-8 h-8 text-orange-600" />
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-2">
-            Maintenance Request
-          </h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            Report maintenance issues and track repair progress for your room
-            and common areas
-          </p>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-white rounded-lg p-1 shadow-sm border">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 p-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <section className="rounded-3xl bg-white p-6 shadow-xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-center gap-4">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                <FaTools size={24} />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">
+                  Maintenance requests
+                </h1>
+                <p className="mt-1 text-sm text-gray-600">
+                  Track issues around your hostel and submit new ones in
+                  seconds.
+                </p>
+              </div>
+            </div>
             <button
-              onClick={() => setShowHistory(false)}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                !showHistory
-                  ? "bg-orange-600 text-white shadow-sm"
-                  : "text-gray-600 hover:text-orange-600"
-              }`}
+              type="button"
+              onClick={() => {
+                resetForm();
+                setIsFormOpen(true);
+              }}
+              className="inline-flex items-center gap-2 self-start rounded-2xl bg-gradient-to-r from-orange-600 to-red-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-orange-700 hover:to-red-600"
             >
-              Submit Request
-            </button>
-            <button
-              onClick={() => setShowHistory(true)}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                showHistory
-                  ? "bg-orange-600 text-white shadow-sm"
-                  : "text-gray-600 hover:text-orange-600"
-              }`}
-            >
-              <FaHistory className="inline mr-2" />
-              History ({requests.length})
+              <HiPlusSm size={18} />
+              Create request
             </button>
           </div>
-        </div>
+        </section>
 
-        {!showHistory ? (
-          // Maintenance Request Form
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 border border-gray-200">
-              {submissionSuccess && (
-                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center">
-                    <FaCheckCircle className="w-5 h-5 text-green-600 mr-3" />
-                    <p className="text-green-800 font-medium">
-                      Maintenance request submitted successfully! Our team will
-                      address it soon.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Request Type Selection */}
-                <div>
-                  <label className="block text-lg font-semibold text-gray-700 mb-4">
-                    Type of Maintenance Issue *
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {requestTypes.map((type) => (
-                      <div
-                        key={type.value}
-                        className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                          requestType === type.value
-                            ? "border-orange-500 bg-orange-50"
-                            : "border-gray-200 hover:border-orange-300"
-                        }`}
-                        onClick={() => setRequestType(type.value)}
-                      >
-                        <div className="text-center">
-                          <span className="text-3xl mb-2 block">
-                            {type.icon}
-                          </span>
-                          <h3 className="font-medium text-gray-800 mb-1">
-                            {type.label}
-                          </h3>
-                          <p className="text-xs text-gray-600">
-                            {type.description}
-                          </p>
-                        </div>
-                        {requestType === type.value && (
-                          <div className="absolute top-2 right-2">
-                            <FaCheckCircle className="w-4 h-4 text-orange-600" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Priority Selection */}
-                <div>
-                  <label className="block text-lg font-semibold text-gray-700 mb-4">
-                    Priority Level *
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {priorityLevels.map((level) => (
-                      <div
-                        key={level.value}
-                        className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                          priority === level.value
-                            ? "border-orange-500 bg-orange-50"
-                            : "border-gray-200 hover:border-orange-300"
-                        }`}
-                        onClick={() => setPriority(level.value)}
-                      >
-                        <div className="text-center">
-                          <div
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mb-2 ${level.color}`}
-                          >
-                            {level.label}
-                          </div>
-                          <p className="text-sm text-gray-600">
-                            {level.description}
-                          </p>
-                        </div>
-                        {priority === level.value && (
-                          <div className="absolute top-2 right-2">
-                            <FaCheckCircle className="w-4 h-4 text-orange-600" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-lg font-semibold text-gray-700 mb-2">
-                    Detailed Description *
-                  </label>
-                  <div className="relative">
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="w-full p-4 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 focus:outline-none resize-y min-h-[120px]"
-                      rows="4"
-                      placeholder="Please describe the maintenance issue in detail. Include location, symptoms, and any other relevant information..."
-                      required
-                    ></textarea>
-                    {!isCameraOpen && !photoDataUrl && (
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        title="Take Photo"
-                        className="absolute top-4 right-4 flex items-center justify-center w-10 h-10 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition duration-300 shadow-md"
-                      >
-                        <FaCamera size={16} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="mt-2 text-sm text-gray-500">
-                    {description.length}/500 characters
-                  </div>
-                </div>
-
-                {/* Camera and Photo Section */}
-                <div className="space-y-4">
-                  {isCameraOpen && stream && (
-                    <div className="border-2 border-dashed border-orange-300 p-6 rounded-lg bg-orange-50">
-                      <h3 className="text-lg font-medium text-gray-800 mb-4 text-center">
-                        Take a Photo of the Issue
-                      </h3>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full rounded-lg mb-4 max-h-80 object-cover shadow-md"
-                      />
-                      <div className="flex flex-col sm:flex-row justify-center gap-3">
-                        <button
-                          type="button"
-                          onClick={capturePhoto}
-                          className="flex items-center justify-center px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition duration-300 shadow-md"
-                        >
-                          <FaCheckCircle className="mr-2" />
-                          Capture Photo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={stopCamera}
-                          className="flex items-center justify-center px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-300 shadow-md"
-                        >
-                          <FaTimesCircle className="mr-2" />
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
+        <section className="rounded-3xl bg-white p-6 shadow-xl">
+          <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 md:text-xl">
+                Request history
+              </h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Monitor the status of everything you have reported.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-sm text-gray-600">
+              <label className="flex items-center gap-2">
+                <span>Status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                >
+                  {STATUS_FILTERS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span>Priority</span>
+                <select
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                >
+                  {[{ value: "all", label: "All" }, ...PRIORITY_OPTIONS].map(
+                    (option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    )
                   )}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span>Category</span>
+                <select
+                  value={typeFilter}
+                  onChange={(event) => setTypeFilter(event.target.value)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                >
+                  {[{ value: "all", label: "All" }, ...REQUEST_TYPES].map(
+                    (option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("all");
+                  setPriorityFilter("all");
+                  setTypeFilter("all");
+                }}
+                disabled={!hasFilters}
+                className="inline-flex items-center rounded-xl border border-gray-200 px-3 py-2 font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Clear filters
+              </button>
+              <button
+                type="button"
+                onClick={fetchRequests}
+                disabled={loadingRequests}
+                className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-white px-3 py-2 font-semibold text-orange-600 transition hover:border-orange-300 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <FaSync className={loadingRequests ? "animate-spin" : ""} />
+                Refresh
+              </button>
+            </div>
+          </header>
 
-                  {photoDataUrl && (
-                    <div className="border-2 border-dashed border-green-300 p-6 rounded-lg bg-green-50">
-                      <h3 className="text-lg font-medium text-gray-800 mb-4 text-center">
-                        Photo Captured Successfully
-                      </h3>
+          {error ? (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <div className="flex items-center gap-2">
+                <FaExclamationTriangle />
+                <span>{error}</span>
+              </div>
+            </div>
+          ) : null}
+
+          {loadingRequests ? (
+            <div className="flex items-center justify-center py-12 text-sm text-gray-600">
+              <FaSpinner className="mr-2 animate-spin" />
+              Loading your requests…
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/40 p-10 text-center text-sm text-gray-600">
+              You have not submitted any maintenance requests yet.
+            </div>
+          ) : (
+            <ul className="mt-6 space-y-4">
+              {requests.map((request, index) => {
+                const key =
+                  request?._id ||
+                  `${request.requestType}-${request.createdAt}-${index}`;
+                return (
+                  <li
+                    key={key}
+                    className="rounded-2xl border border-orange-100 bg-orange-50/40 p-4 transition hover:border-orange-200 hover:shadow-md"
+                  >
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {formatTypeLabel(request?.requestType)}
+                          </p>
+                          <p className="mt-1 text-sm text-gray-600">
+                            {request?.description}
+                          </p>
+                        </div>
+                        <span
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(
+                            request?.status
+                          )}`}
+                        >
+                          {formatStatusLabel(request?.status)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <span>
+                          Priority:
+                          <span
+                            className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 ${getPriorityTone(
+                              request?.priority
+                            )}`}
+                          >
+                            {formatPriorityLabel(request?.priority)}
+                          </span>
+                        </span>
+                        <span>
+                          Submitted: {formatDateTime(request?.createdAt)}
+                        </span>
+                        {request?.updatedAt ? (
+                          <span>
+                            Updated: {formatDateTime(request.updatedAt)}
+                          </span>
+                        ) : null}
+                        {request?.resolvedAt ? (
+                          <span>
+                            Resolved: {formatDateTime(request.resolvedAt)}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {request?.resolution ? (
+                        <div className="rounded-2xl bg-white/70 p-3 text-sm text-gray-600">
+                          <span className="font-semibold text-gray-700">
+                            Resolution note:{" "}
+                          </span>
+                          {request.resolution}
+                        </div>
+                      ) : null}
+
+                      {request?.photo ? (
+                        <img
+                          src={request.photo}
+                          alt="Reported maintenance issue"
+                          className="h-40 w-full rounded-2xl object-cover"
+                        />
+                      ) : null}
+
+                      {request?.completionPhoto ? (
+                        <img
+                          src={request.completionPhoto}
+                          alt="Completed maintenance work"
+                          className="h-40 w-full rounded-2xl object-cover"
+                        />
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {isFormOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-gray-900/50"
+            onClick={() => setIsFormOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                  <FaTools size={20} />
+                </span>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Submit maintenance request
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Provide details so the maintenance team can assist quickly.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(false)}
+                className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Maintenance category *
+                  <select
+                    value={requestType}
+                    onChange={(event) => setRequestType(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                    required
+                  >
+                    {REQUEST_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-2 block text-xs text-gray-500">
+                    {selectedType?.helper}
+                  </span>
+                </label>
+
+                <label className="block text-sm font-medium text-gray-700">
+                  Priority *
+                  <select
+                    value={priority}
+                    onChange={(event) => setPriority(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                    required
+                  >
+                    {PRIORITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block text-sm font-medium text-gray-700">
+                Describe the issue *
+                <textarea
+                  value={description}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.slice(
+                      0,
+                      DESCRIPTION_LIMIT
+                    );
+                    setDescription(nextValue);
+                  }}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                  placeholder="Include location, what happened, and any other details that will help the maintenance team."
+                  required
+                />
+                <span className="mt-1 block text-xs text-gray-500">
+                  {description.length}/{DESCRIPTION_LIMIT} characters
+                </span>
+              </label>
+
+              <div>
+                <span className="text-sm font-medium text-gray-700">
+                  Reference photo (optional)
+                </span>
+                <div className="mt-2 rounded-2xl border border-dashed border-orange-200 bg-orange-50/40 p-4">
+                  {photoDataUrl ? (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <img
                         src={photoDataUrl}
-                        alt="Captured maintenance issue"
-                        className="w-full max-w-md mx-auto rounded-lg shadow-md mb-4"
+                        alt="Uploaded maintenance reference"
+                        className="h-32 w-full rounded-2xl object-cover sm:h-36 sm:w-48"
                       />
-                      <div className="flex flex-col sm:flex-row justify-center gap-3">
+                      <div className="flex flex-col gap-2 sm:flex-row">
                         <button
                           type="button"
-                          onClick={() => setPhotoDataUrl(null)}
-                          className="flex items-center justify-center px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-300 shadow-md"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center justify-center rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-600 transition hover:border-orange-300 hover:bg-orange-100"
                         >
-                          <FaTimesCircle className="mr-2" />
-                          Remove Photo
+                          Change photo
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setPhotoDataUrl(null);
-                            startCamera();
-                          }}
-                          className="flex items-center justify-center px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition duration-300 shadow-md"
+                          onClick={handleRemovePhoto}
+                          className="inline-flex items-center justify-center rounded-xl border border-transparent bg-white px-4 py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
                         >
-                          <FaRedo className="mr-2" />
-                          Retake Photo
+                          Remove
                         </button>
                       </div>
-                    </div>
-                  )}
-
-                  {cameraError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                      <div className="flex items-center">
-                        <FaExclamationTriangle className="w-5 h-5 mr-3" />
-                        {cameraError}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !requestType || !description.trim()}
-                  className="w-full py-4 bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold rounded-lg hover:from-orange-700 hover:to-red-700 focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                >
-                  {isSubmitting ? (
-                    <div className="flex items-center justify-center">
-                      <FaSpinner className="animate-spin w-5 h-5 mr-3" />
-                      Submitting Request...
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center">
-                      <FaPaperPlane className="w-5 h-5 mr-3" />
-                      Submit Maintenance Request
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-transparent bg-white/70 px-4 py-6 text-sm font-semibold text-orange-600 transition hover:bg-white"
+                    >
+                      <FaImage className="text-lg" />
+                      Upload a reference photo (optional)
+                    </button>
                   )}
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : (
-          // Maintenance History
-          <div className="max-w-5xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                  <FaHistory className="w-5 h-5 mr-3 text-orange-600" />
-                  Maintenance Request History
-                </h2>
-                <p className="text-gray-600 mt-1">
-                  Track the progress of your maintenance requests
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Supported formats: JPG, PNG. Maximum size 3MB.
                 </p>
               </div>
 
-              <div className="p-6">
-                {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <FaSpinner className="animate-spin w-8 h-8 text-orange-600" />
-                    <span className="ml-3 text-gray-600">
-                      Loading maintenance history...
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setIsFormOpen(false);
+                  }}
+                  className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-2xl bg-gradient-to-r from-orange-600 to-red-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-orange-700 hover:to-red-600 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <FaSpinner className="animate-spin" />
+                      Submitting request…
                     </span>
-                  </div>
-                ) : requests.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FaTools className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-600 mb-2">
-                      No Maintenance Requests
-                    </h3>
-                    <p className="text-gray-500">
-                      You haven't submitted any maintenance requests yet.
-                    </p>
-                    <button
-                      onClick={() => setShowHistory(false)}
-                      className="mt-4 px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-                    >
-                      Submit Your First Request
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {requests.map((request) => (
-                      <div
-                        key={request._id}
-                        className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-3 mb-2">
-                              <h3 className="font-semibold text-gray-800 capitalize">
-                                {request.requestType?.replace("_", " ") ||
-                                  "General"}{" "}
-                                Request
-                              </h3>
-                              <div
-                                className={`flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                                  request.status || "pending"
-                                )}`}
-                              >
-                                {getStatusIcon(request.status || "pending")}
-                                <span className="ml-1 capitalize">
-                                  {request.status || "pending"}
-                                </span>
-                              </div>
-                            </div>
-                            {request.priority && (
-                              <div
-                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mb-2 ${getPriorityColor(
-                                  request.priority
-                                )}`}
-                              >
-                                {request.priority} Priority
-                              </div>
-                            )}
-                            <p className="text-sm text-gray-600 line-clamp-3 mb-2">
-                              {request.description}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-xs text-gray-500 mb-3">
-                          Submitted on{" "}
-                          {new Date(request.createdAt).toLocaleDateString(
-                            "en-US",
-                            {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            }
-                          )}
-                        </div>
-                        {request.photo && (
-                          <img
-                            src={request.photo}
-                            alt="Maintenance issue"
-                            className="w-full h-40 object-cover rounded-lg mt-3 shadow-sm"
-                          />
-                        )}
-                        {request.adminComments && (
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                            <p className="text-sm font-medium text-gray-700 mb-1">
-                              Technician Notes:
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {request.adminComments}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <FaPaperPlane />
+                      Submit maintenance request
+                    </span>
+                  )}
+                </button>
               </div>
-            </div>
+            </form>
           </div>
-        )}
-
-        {/* Error Display */}
-        {error && (
-          <div className="max-w-4xl mx-auto mt-6">
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              <div className="flex items-center">
-                <FaExclamationTriangle className="w-5 h-5 mr-3" />
-                {error}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <canvas ref={canvasRef} style={{ display: "none" }} />
+        </div>
+      ) : null}
     </div>
   );
+};
+
+const formatTypeLabel = (value) => {
+  const match = REQUEST_TYPES.find((type) => type.value === value);
+  return match?.label || toTitleCase(value);
+};
+
+const formatPriorityLabel = (value) => {
+  const match = PRIORITY_OPTIONS.find((option) => option.value === value);
+  return match?.label || toTitleCase(value);
+};
+
+const formatStatusLabel = (value) => {
+  if (!value) {
+    return "Pending";
+  }
+  return toTitleCase(value);
+};
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+};
+
+const getStatusTone = (value) => {
+  const normalized = value?.toLowerCase();
+  switch (normalized) {
+    case "completed":
+      return "bg-emerald-100 text-emerald-700";
+    case "in-progress":
+      return "bg-indigo-100 text-indigo-700";
+    default:
+      return "bg-amber-100 text-amber-700";
+  }
+};
+
+const getPriorityTone = (value) => {
+  const normalized = value?.toLowerCase();
+  switch (normalized) {
+    case "high":
+      return "bg-rose-100 text-rose-700";
+    case "low":
+      return "bg-emerald-100 text-emerald-700";
+    default:
+      return "bg-amber-100 text-amber-700";
+  }
+};
+
+const toTitleCase = (value) => {
+  if (!value) {
+    return "";
+  }
+  return value
+    .toString()
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 };
 
 export default MaintenanceRequest;

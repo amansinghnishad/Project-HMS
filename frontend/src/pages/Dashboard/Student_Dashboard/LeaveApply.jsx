@@ -1,567 +1,568 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FaCalendarAlt,
   FaPaperPlane,
   FaSpinner,
-  FaCheckCircle,
-  FaClock,
-  FaTimes,
-  FaHistory,
-  FaEdit,
   FaExclamationTriangle,
+  FaTimes,
 } from "react-icons/fa";
+import { HiPlusSm } from "react-icons/hi";
 import { toast } from "react-hot-toast";
 import { leaveService } from "../../../services/api";
 
+const LEAVE_TYPES = [
+  {
+    value: "sick",
+    label: "Sick",
+    helper: "Doctor visits, recovery, health concerns",
+  },
+  {
+    value: "emergency",
+    label: "Emergency",
+    helper: "Family emergencies or urgent matters",
+  },
+  {
+    value: "personal",
+    label: "Personal",
+    helper: "Personal commitments or events",
+  },
+  {
+    value: "vacation",
+    label: "Vacation",
+    helper: "Planned time away from campus",
+  },
+  { value: "other", label: "Other", helper: "Anything else that needs leave" },
+];
+
+const STATUS_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+];
+
+const DESCRIPTION_LIMIT = 500;
+
 const LeaveApply = () => {
   const [formData, setFormData] = useState({
-    reason: "",
+    leaveType: LEAVE_TYPES[0].value,
     startDate: "",
     endDate: "",
     emergencyContact: "",
-    leaveType: "",
+    reason: "",
   });
+  const [leaveRequests, setLeaveRequests] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [leaveHistory, setLeaveHistory] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch leave history
   const fetchLeaveHistory = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const response = await leaveService.fetchUserLeaveRequests();
-      setLeaveHistory(response?.data || []);
-    } catch (error) {
-      console.error("Error fetching leave history:", error);
-      toast.error(
-        error?.message || "Failed to fetch leave history. Please try again."
-      );
+      const params = {};
+      if (statusFilter !== "all") {
+        params.status = statusFilter;
+      }
+      if (typeFilter !== "all") {
+        params.leaveType = typeFilter;
+      }
+
+      const response = await leaveService.fetchUserLeaveRequests(params);
+      setLeaveRequests(response?.data || []);
+    } catch (err) {
+      console.error("Unable to load leave requests", err);
+      const message =
+        err?.message || err?.payload?.error || "Unable to load leave requests.";
+      setError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, []);
+  }, [statusFilter, typeFilter]);
 
   useEffect(() => {
     fetchLeaveHistory();
   }, [fetchLeaveHistory]);
 
-  const leaveTypes = [
-    {
-      value: "sick",
-      label: "Sick Leave",
-      icon: "🏥",
-      description: "Medical reasons or health issues",
-    },
-    {
-      value: "emergency",
-      label: "Emergency",
-      icon: "🚨",
-      description: "Family emergency or urgent personal matters",
-    },
-    {
-      value: "personal",
-      label: "Personal",
-      icon: "👤",
-      description: "Personal reasons or family events",
-    },
-    {
-      value: "vacation",
-      label: "Vacation",
-      icon: "🏖️",
-      description: "Planned vacation or holiday",
-    },
-    {
-      value: "other",
-      label: "Other",
-      icon: "📝",
-      description: "Any other reason not listed above",
-    },
-  ];
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
+  const todayIso = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const selectedType = useMemo(
+    () => LEAVE_TYPES.find((type) => type.value === formData.leaveType),
+    [formData.leaveType]
+  );
+
+  const handleInputChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setSubmissionSuccess(false);
 
-    const toastId = toast.loading("Submitting leave application...");
+  const resetForm = () => {
+    setFormData({
+      leaveType: LEAVE_TYPES[0].value,
+      startDate: "",
+      endDate: "",
+      emergencyContact: "",
+      reason: "",
+    });
+  };
 
-    // Validation
+  const validateForm = () => {
     if (
-      !formData.leaveType ||
-      !formData.reason ||
       !formData.startDate ||
       !formData.endDate ||
-      !formData.emergencyContact
+      !formData.emergencyContact ||
+      !formData.reason
     ) {
-      toast.error("Please fill in all required fields", { id: toastId });
-      setIsSubmitting(false);
-      return;
+      return "All fields are required.";
     }
 
-    // Date validation
-    const startDate = new Date(formData.startDate);
-    const endDate = new Date(formData.endDate);
+    const start = new Date(formData.startDate);
+    const end = new Date(formData.endDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (startDate < today) {
-      toast.error("Start date cannot be in the past", { id: toastId });
-      setIsSubmitting(false);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return "Please choose valid start and end dates.";
+    }
+
+    if (start < today) {
+      return "Start date cannot be in the past.";
+    }
+
+    if (end <= start) {
+      return "End date must be after the start date.";
+    }
+
+    if (formData.reason.trim().length === 0) {
+      return "Please describe why you need leave.";
+    }
+
+    if (formData.reason.length > DESCRIPTION_LIMIT) {
+      return `Reason must be ${DESCRIPTION_LIMIT} characters or fewer.`;
+    }
+
+    return null;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const validationError = validateForm();
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 
-    if (endDate <= startDate) {
-      toast.error("End date must be after start date", { id: toastId });
-      setIsSubmitting(false);
-      return;
-    }
+    setIsSubmitting(true);
+    const toastId = toast.loading("Submitting leave application...");
 
     try {
-      const response = await leaveService.submitLeaveRequest(formData);
+      const payload = {
+        leaveType: formData.leaveType,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        emergencyContact: formData.emergencyContact.trim(),
+        reason: formData.reason.trim(),
+      };
 
-      if (response?.success) {
-        toast.success(
-          response.message || "Leave application submitted successfully!",
-          {
-            id: toastId,
-          }
-        );
-        setSubmissionSuccess(true);
+      const response = await leaveService.submitLeaveRequest(payload);
+      toast.success(response?.message || "Leave request submitted.", {
+        id: toastId,
+      });
 
-        // Reset form
-        setFormData({
-          reason: "",
-          startDate: "",
-          endDate: "",
-          emergencyContact: "",
-          leaveType: "",
-        });
-
-        // Refresh history without page reload
-        await fetchLeaveHistory();
-
-        // Auto switch to history tab to show the new request
-        setTimeout(() => {
-          setShowHistory(true);
-        }, 1000);
-      }
-    } catch (error) {
-      console.error("Error submitting leave:", error);
-      toast.error(
-        error.response?.data?.error ||
-          error?.message ||
-          "Failed to submit leave application",
-        { id: toastId }
-      );
+      resetForm();
+      setIsModalOpen(false);
+      await fetchLeaveHistory();
+    } catch (err) {
+      const message =
+        err?.payload?.error ||
+        err?.message ||
+        "Unable to submit leave application.";
+      toast.error(message, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "pending":
-        return "text-yellow-600 bg-yellow-100";
-      case "approved":
-        return "text-green-600 bg-green-100";
-      case "rejected":
-        return "text-red-600 bg-red-100";
-      default:
-        return "text-gray-600 bg-gray-100";
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "pending":
-        return <FaClock className="w-3 h-3" />;
-      case "approved":
-        return <FaCheckCircle className="w-3 h-3" />;
-      case "rejected":
-        return <FaTimes className="w-3 h-3" />;
-      default:
-        return <FaExclamationTriangle className="w-3 h-3" />;
-    }
-  };
-
-  const calculateDuration = (startDate, endDate) => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end - start);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays;
-  };
   return (
-    <div className="p-4 sm:p-6 bg-gradient-to-br from-green-50 to-emerald-100 min-h-screen">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-            <FaCalendarAlt className="w-8 h-8 text-green-600" />
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-2">
-            Leave Application
-          </h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            Submit your leave requests and track their approval status
-          </p>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-white rounded-lg p-1 shadow-sm border">
-            <button
-              onClick={() => setShowHistory(false)}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                !showHistory
-                  ? "bg-green-600 text-white shadow-sm"
-                  : "text-gray-600 hover:text-green-600"
-              }`}
-            >
-              Apply for Leave
-            </button>
-            <button
-              onClick={() => setShowHistory(true)}
-              className={`px-6 py-2 rounded-md font-medium transition-all ${
-                showHistory
-                  ? "bg-green-600 text-white shadow-sm"
-                  : "text-gray-600 hover:text-green-600"
-              }`}
-            >
-              <FaHistory className="inline mr-2" />
-              History ({leaveHistory.length})
-            </button>
-          </div>
-        </div>
-
-        {!showHistory ? (
-          // Leave Application Form
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 border border-gray-200">
-              {submissionSuccess && (
-                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center">
-                    <FaCheckCircle className="w-5 h-5 text-green-600 mr-3" />
-                    <p className="text-green-800 font-medium">
-                      Leave application submitted successfully! You will be
-                      notified about the approval status.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Leave Type Selection */}
-                <div>
-                  <label className="block text-lg font-semibold text-gray-700 mb-4">
-                    Leave Type *
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {leaveTypes.map((type) => (
-                      <div
-                        key={type.value}
-                        className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                          formData.leaveType === type.value
-                            ? "border-green-500 bg-green-50"
-                            : "border-gray-200 hover:border-green-300"
-                        }`}
-                        onClick={() =>
-                          setFormData({ ...formData, leaveType: type.value })
-                        }
-                      >
-                        <div className="flex items-start space-x-3">
-                          <span className="text-2xl">{type.icon}</span>
-                          <div className="flex-1">
-                            <h3 className="font-medium text-gray-800">
-                              {type.label}
-                            </h3>
-                            <p className="text-sm text-gray-600 mt-1">
-                              {type.description}
-                            </p>
-                          </div>
-                        </div>
-                        {formData.leaveType === type.value && (
-                          <div className="absolute top-2 right-2">
-                            <FaCheckCircle className="w-4 h-4 text-green-600" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Date Selection */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div>
-                    <label
-                      htmlFor="startDate"
-                      className="block text-sm font-semibold text-gray-700 mb-2"
-                    >
-                      Start Date *
-                    </label>
-                    <div className="relative">
-                      <FaCalendarAlt className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <input
-                        type="date"
-                        id="startDate"
-                        name="startDate"
-                        value={formData.startDate}
-                        onChange={handleChange}
-                        min={new Date().toISOString().split("T")[0]}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-700"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="endDate"
-                      className="block text-sm font-semibold text-gray-700 mb-2"
-                    >
-                      End Date *
-                    </label>
-                    <div className="relative">
-                      <FaCalendarAlt className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <input
-                        type="date"
-                        id="endDate"
-                        name="endDate"
-                        value={formData.endDate}
-                        onChange={handleChange}
-                        min={
-                          formData.startDate ||
-                          new Date().toISOString().split("T")[0]
-                        }
-                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-700"
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Duration Display */}
-                {formData.startDate && formData.endDate && (
-                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                    <p className="text-green-800 font-medium">
-                      Duration:{" "}
-                      {calculateDuration(formData.startDate, formData.endDate)}{" "}
-                      day(s)
-                    </p>
-                  </div>
-                )}
-
-                {/* Emergency Contact */}
-                <div>
-                  <label
-                    htmlFor="emergencyContact"
-                    className="block text-sm font-semibold text-gray-700 mb-2"
-                  >
-                    Emergency Contact Number *
-                  </label>
-                  <input
-                    type="tel"
-                    id="emergencyContact"
-                    name="emergencyContact"
-                    value={formData.emergencyContact}
-                    onChange={handleChange}
-                    className="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-700"
-                    placeholder="Enter emergency contact number"
-                    required
-                  />
-                </div>
-
-                {/* Reason */}
-                <div>
-                  <label
-                    htmlFor="reason"
-                    className="block text-sm font-semibold text-gray-700 mb-2"
-                  >
-                    Reason for Leave *
-                  </label>
-                  <textarea
-                    id="reason"
-                    name="reason"
-                    value={formData.reason}
-                    onChange={handleChange}
-                    className="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-700 resize-y min-h-[120px]"
-                    placeholder="Please provide detailed reason for your leave request..."
-                    rows="4"
-                    required
-                  />
-                  <div className="mt-2 text-sm text-gray-500">
-                    {formData.reason.length}/500 characters
-                  </div>
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={
-                    isSubmitting ||
-                    !formData.leaveType ||
-                    !formData.startDate ||
-                    !formData.endDate ||
-                    !formData.reason.trim()
-                  }
-                  className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                >
-                  {isSubmitting ? (
-                    <div className="flex items-center justify-center">
-                      <FaSpinner className="animate-spin w-5 h-5 mr-3" />
-                      Submitting Application...
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center">
-                      <FaPaperPlane className="w-5 h-5 mr-3" />
-                      Submit Leave Application
-                    </div>
-                  )}
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : (
-          // Leave History
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-800 flex items-center">
-                  <FaHistory className="w-5 h-5 mr-3 text-green-600" />
-                  Leave Application History
-                </h2>
-                <p className="text-gray-600 mt-1">
-                  Track the status of your leave applications
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 p-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <section className="rounded-3xl bg-white p-6 shadow-xl">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex items-center gap-4">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+                <FaCalendarAlt size={24} />
+              </span>
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">
+                  Leave applications
+                </h1>
+                <p className="mt-1 text-sm text-gray-600">
+                  Submit a new request or review decisions from your provost.
                 </p>
               </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                resetForm();
+                setIsModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600"
+            >
+              <HiPlusSm size={18} />
+              Apply for leave
+            </button>
+          </header>
+        </section>
 
-              <div className="p-6">
-                {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <FaSpinner className="animate-spin w-8 h-8 text-green-600" />
-                    <span className="ml-3 text-gray-600">
-                      Loading leave history...
-                    </span>
-                  </div>
-                ) : leaveHistory.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FaCalendarAlt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-600 mb-2">
-                      No Leave Applications
-                    </h3>
-                    <p className="text-gray-500">
-                      You haven't submitted any leave applications yet.
-                    </p>
-                    <button
-                      onClick={() => setShowHistory(false)}
-                      className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Apply for Leave
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {leaveHistory.map((leave, index) => (
-                      <div
-                        key={leave._id || index}
-                        className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-3 mb-2">
-                              <h3 className="font-semibold text-gray-800 capitalize">
-                                {leave.leaveType || "General"} Leave
-                              </h3>
-                              <div
-                                className={`flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                                  leave.status || "pending"
-                                )}`}
-                              >
-                                {getStatusIcon(leave.status || "pending")}
-                                <span className="ml-1 capitalize">
-                                  {leave.status || "pending"}
-                                </span>
-                              </div>
-                            </div>{" "}
-                            <p className="text-sm text-gray-600 mb-2">
-                              <span className="font-medium">Duration:</span>{" "}
-                              {new Date(
-                                leave.fromDate || leave.startDate
-                              ).toLocaleDateString()}{" "}
-                              -{" "}
-                              {new Date(
-                                leave.toDate || leave.endDate
-                              ).toLocaleDateString()}{" "}
-                              (
-                              {calculateDuration(
-                                leave.fromDate || leave.startDate,
-                                leave.toDate || leave.endDate
-                              )}{" "}
-                              days)
-                            </p>
-                            <p className="text-sm text-gray-600 line-clamp-2">
-                              <span className="font-medium">Reason:</span>{" "}
-                              {leave.reason}
-                            </p>
-                            {leave.emergencyContact && (
-                              <p className="text-sm text-gray-600">
-                                <span className="font-medium">
-                                  Emergency Contact:
-                                </span>{" "}
-                                {leave.emergencyContact}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>
-                            Applied on{" "}
-                            {new Date(
-                              leave.createdAt || leave.submittedAt
-                            ).toLocaleDateString("en-US", {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                          {leave.approvedBy && (
-                            <span className="text-green-600 font-medium">
-                              Approved by {leave.approvedBy}
-                            </span>
-                          )}
-                          {leave.rejectedBy && (
-                            <span className="text-red-600 font-medium">
-                              Rejected by {leave.rejectedBy}
-                            </span>
-                          )}
-                        </div>{" "}
-                        {(leave.provostComments || leave.adminComments) && (
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                            <p className="text-sm font-medium text-gray-700 mb-1">
-                              Provost Comments:
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {leave.provostComments || leave.adminComments}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+        <section className="rounded-3xl bg-white p-6 shadow-xl">
+          <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 md:text-xl">
+                Leave history
+              </h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Filters apply instantly.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-sm text-gray-600">
+              <label className="flex items-center gap-2">
+                <span>Status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                >
+                  {STATUS_FILTERS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span>Type</span>
+                <select
+                  value={typeFilter}
+                  onChange={(event) => setTypeFilter(event.target.value)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                >
+                  {[{ value: "all", label: "All" }, ...LEAVE_TYPES].map(
+                    (option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+            </div>
+          </header>
+
+          {error ? (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <div className="flex items-center gap-2">
+                <FaExclamationTriangle />
+                <span>{error}</span>
               </div>
             </div>
-          </div>
-        )}
+          ) : null}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12 text-sm text-gray-600">
+              <FaSpinner className="mr-2 animate-spin" />
+              Loading your leave requests…
+            </div>
+          ) : leaveRequests.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-10 text-center text-sm text-gray-600">
+              No leave applications found. Use the button above to submit one.
+            </div>
+          ) : (
+            <ul className="mt-6 space-y-4">
+              {leaveRequests.map((request, index) => (
+                <li
+                  key={
+                    request?._id ||
+                    `${request.leaveType}-${request.createdAt}-${index}`
+                  }
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 transition hover:border-emerald-200 hover:shadow-md"
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {formatLeaveType(request?.leaveType)} leave
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {formatDateRange(
+                            request?.fromDate || request?.startDate,
+                            request?.toDate || request?.endDate
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {request?.reason}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(
+                          request?.status
+                        )}`}
+                      >
+                        {formatStatusLabel(request?.status)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                      <span>
+                        Emergency contact: {request?.emergencyContact || "—"}
+                      </span>
+                      <span>
+                        Applied:{" "}
+                        {formatDateTime(
+                          request?.createdAt || request?.submittedAt
+                        )}
+                      </span>
+                      {request?.resolvedAt ? (
+                        <span>
+                          Resolved: {formatDateTime(request.resolvedAt)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {request?.provostComments || request?.adminComments ? (
+                      <div className="rounded-2xl bg-white/70 p-3 text-sm text-gray-600">
+                        <span className="font-semibold text-gray-700">
+                          Provost note:{" "}
+                        </span>
+                        {request.provostComments || request.adminComments}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
+
+      {isModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-gray-900/50"
+            onClick={() => setIsModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+                  <FaCalendarAlt size={20} />
+                </span>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Apply for leave
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Complete the form to submit your request.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+              <label className="block text-sm font-medium text-gray-700">
+                Leave type *
+                <select
+                  name="leaveType"
+                  value={formData.leaveType}
+                  onChange={handleInputChange}
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  required
+                >
+                  {LEAVE_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-2 block text-xs text-gray-500">
+                  {selectedType?.helper}
+                </span>
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Start date *
+                  <input
+                    type="date"
+                    name="startDate"
+                    value={formData.startDate}
+                    onChange={handleInputChange}
+                    min={todayIso}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    required
+                  />
+                </label>
+                <label className="block text-sm font-medium text-gray-700">
+                  End date *
+                  <input
+                    type="date"
+                    name="endDate"
+                    value={formData.endDate}
+                    onChange={handleInputChange}
+                    min={formData.startDate || todayIso}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    required
+                  />
+                </label>
+              </div>
+
+              <label className="block text-sm font-medium text-gray-700">
+                Emergency contact *
+                <input
+                  type="tel"
+                  name="emergencyContact"
+                  value={formData.emergencyContact}
+                  onChange={handleInputChange}
+                  placeholder="Include country code if applicable"
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  required
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-gray-700">
+                Reason for leave *
+                <textarea
+                  name="reason"
+                  value={formData.reason}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.slice(
+                      0,
+                      DESCRIPTION_LIMIT
+                    );
+                    setFormData((prev) => ({ ...prev, reason: nextValue }));
+                  }}
+                  rows={5}
+                  placeholder="Provide context so the provost can approve quickly."
+                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  required
+                />
+                <span className="mt-1 block text-xs text-gray-500">
+                  {formData.reason.length}/{DESCRIPTION_LIMIT} characters
+                </span>
+              </label>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setIsModalOpen(false);
+                  }}
+                  className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-2xl bg-gradient-to-r from-emerald-600 to-green-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:from-emerald-700 hover:to-green-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <FaSpinner className="animate-spin" />
+                      Submitting…
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <FaPaperPlane />
+                      Submit leave request
+                    </span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+};
+
+const formatLeaveType = (value) => {
+  const match = LEAVE_TYPES.find((type) => type.value === value);
+  return match?.label || toTitleCase(value);
+};
+
+const formatStatusLabel = (value) => {
+  if (!value) {
+    return "Pending";
+  }
+  return toTitleCase(value);
+};
+
+const formatDateRange = (start, end) => {
+  if (!start || !end) {
+    return "Dates unavailable";
+  }
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return "Dates unavailable";
+  }
+  const duration = Math.max(
+    1,
+    Math.round((endDate - startDate) / (1000 * 60 * 60 * 24))
+  );
+  return `${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()} • ${
+    duration + 1
+  } days`;
+};
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+};
+
+const getStatusTone = (value) => {
+  const normalized = value?.toLowerCase();
+  switch (normalized) {
+    case "approved":
+      return "bg-emerald-100 text-emerald-700";
+    case "rejected":
+      return "bg-rose-100 text-rose-700";
+    default:
+      return "bg-amber-100 text-amber-700";
+  }
+};
+
+const toTitleCase = (value) => {
+  if (!value) {
+    return "";
+  }
+  return value
+    .toString()
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 };
 
 export default LeaveApply;

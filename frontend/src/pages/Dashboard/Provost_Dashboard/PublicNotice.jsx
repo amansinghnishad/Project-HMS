@@ -1,417 +1,381 @@
-import React, { useState, useEffect } from "react";
-import { toast } from "react-hot-toast";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   FaBullhorn,
   FaPlus,
-  FaEdit,
-  FaTrash,
-  FaEye,
+  FaSync,
   FaSearch,
-  FaFilter,
-  FaSort,
-  FaCalendarAlt,
-  FaClock,
+  FaStar,
+  FaRegFileAlt,
   FaExclamationTriangle,
   FaCheckCircle,
-  FaTimesCircle,
+  FaEye,
+  FaEdit,
+  FaTrash,
   FaSpinner,
-  FaFileAlt,
+  FaCalendarAlt,
   FaPaperclip,
-  FaDownload,
-  FaChevronDown,
-  FaChevronUp,
-  FaSync,
-  FaTh,
-  FaList,
-  FaArrowUp,
-  FaArrowDown,
-  FaTags,
-  FaRegClock,
-  FaRegCalendarAlt,
-  FaRegFileAlt,
-  FaRegBell,
-  FaChartBar,
-  FaUsers,
-  FaBookmark,
-  FaStar,
-  FaFlag,
-  FaLayerGroup,
-  FaRocket,
-  FaLightbulb,
-  FaShieldAlt,
-  FaInfoCircle,
-  FaHome,
-  FaGraduationCap,
-  FaBed,
-  FaUserGraduate,
-  FaTools,
-  FaWifi,
-  FaUtensils,
-  FaBars,
   FaTimes,
-  FaEnvelope,
-  FaUserFriends,
-  FaChartLine,
-  FaClipboardList,
-  FaCertificate,
 } from "react-icons/fa";
-import { publicNoticeService } from "../../../services/api/publicNoticeService";
+import { toast } from "react-hot-toast";
+import Pagination from "../../../components/common/Pagination";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
+import { publicNoticeService } from "../../../services/api/publicNoticeService";
+
+const PAGE_SIZE = 10;
+
+const CATEGORY_OPTIONS = [
+  "General",
+  "Academic",
+  "Administrative",
+  "Events",
+  "Facilities",
+  "Emergency",
+];
+
+const STATUS_OPTIONS = ["draft", "published", "archived"];
+
+const NOTICE_TEMPLATES = [
+  {
+    id: 1,
+    name: "General announcement",
+    category: "General",
+    title: "General announcement",
+    content:
+      "This is to inform all students about [announcement details]. Please take note and follow the instructions accordingly.",
+  },
+  {
+    id: 2,
+    name: "Maintenance notice",
+    category: "Facilities",
+    title: "Scheduled maintenance",
+    content:
+      "There will be scheduled maintenance of [facility/service] on [date] from [time] to [time]. Please plan accordingly.",
+  },
+  {
+    id: 3,
+    name: "Event update",
+    category: "Events",
+    title: "Upcoming event",
+    content:
+      "We are pleased to announce [event name] scheduled for [date] at [time]. Add the event to your calendar to stay informed.",
+  },
+  {
+    id: 4,
+    name: "Urgent alert",
+    category: "Emergency",
+    title: "Urgent notice",
+    content:
+      "URGENT: [Urgent matter details]. Immediate action required. Please review the instructions attached to this notice.",
+    isImportant: true,
+  },
+];
+
+const createEmptyForm = () => ({
+  title: "",
+  content: "",
+  category: "General",
+  effectiveDate: "",
+  expiryDate: "",
+  isImportant: false,
+  status: "draft",
+});
 
 const PublicNotice = () => {
-  // Add custom styles for animations
-  const customStyles = `
-    .animate-fadeIn {
-      animation: fadeIn 0.5s ease-out;
-    }
-    
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-    
-    .line-clamp-3 {
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-  `;
-
-  // Enhanced state management
   const [notices, setNotices] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  // UI State
-  const [showForm, setShowForm] = useState(false);
-  const [editingNotice, setEditingNotice] = useState(null);
-  const [viewMode, setViewMode] = useState("grid"); // grid, list
-  const [selectedNotices, setSelectedNotices] = useState([]);
-  const [showBulkActions, setShowBulkActions] = useState(false);
-  const [expandedCard, setExpandedCard] = useState(null);
-  const [selectedNotice, setSelectedNotice] = useState(null);
-
-  // Form data
-  const [formData, setFormData] = useState({
-    title: "",
-    content: "",
-    category: "General",
-    effectiveDate: "",
-    expiryDate: "",
-    isImportant: false,
-    status: "draft",
-  });
-  const [attachments, setAttachments] = useState([]);
-
-  // Enhanced filtering and search
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filter, setFilter] = useState({
-    status: "all",
-    category: "all",
-    importance: "all",
-    dateRange: "all",
-  });
-  const [sortBy, setSortBy] = useState("createdAt");
-  const [sortOrder, setSortOrder] = useState("desc");
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(9);
-
-  // Statistics
-  const [stats, setStats] = useState({
-    total: 0,
-    published: 0,
-    drafts: 0,
-    expired: 0,
-    important: 0,
-  });
-
-  // Templates for quick notice creation
-  const [noticeTemplates] = useState([
-    {
-      id: 1,
-      name: "General Announcement",
-      category: "General",
-      title: "General Announcement",
-      content:
-        "This is to inform all students about [announcement details]. Please take note and follow the instructions accordingly.",
-    },
-    {
-      id: 2,
-      name: "Maintenance Notice",
-      category: "Facilities",
-      title: "Scheduled Maintenance",
-      content:
-        "There will be scheduled maintenance of [facility/service] on [date] from [time] to [time]. Please plan accordingly.",
-    },
-    {
-      id: 3,
-      name: "Event Notification",
-      category: "Events",
-      title: "Upcoming Event",
-      content:
-        "We are pleased to announce [event name] scheduled for [date] at [time]. [Event details and registration information].",
-    },
-    {
-      id: 4,
-      name: "Academic Notice",
-      category: "Academic",
-      title: "Academic Notification",
-      content:
-        "This notice is regarding [academic matter]. All students are requested to [action required].",
-    },
-    {
-      id: 5,
-      name: "Urgent Alert",
-      category: "Emergency",
-      title: "Urgent Notice",
-      content:
-        "URGENT: [Urgent matter details]. Immediate action required. Please [specific instructions].",
-      isImportant: true,
-    },
-  ]);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  useEffect(() => {
-    fetchNotices();
-  }, [filter, sortBy, sortOrder]);
+  const [editingNotice, setEditingNotice] = useState(null);
+  const [formData, setFormData] = useState(createEmptyForm);
+  const [attachments, setAttachments] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedNotice, setSelectedNotice] = useState(null);
+  const [error, setError] = useState(null);
+
+  const loadNotices = async () => {
+    const response = await publicNoticeService.fetchAllNotices();
+    setNotices(response?.notices || []);
+  };
 
   useEffect(() => {
-    calculateStats();
+    const bootstrap = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        await loadNotices();
+      } catch (err) {
+        const message =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load public notices.";
+        setError(message);
+        toast.error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    bootstrap();
+  }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, categoryFilter]);
+
+  useEffect(() => {
+    if (!isFormOpen) {
+      document.body.style.overflow = "";
+      return undefined;
+    }
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        handleCloseForm();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [isFormOpen]);
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const total = notices.length;
+    const published = notices.filter(
+      (notice) => (notice.status || "").toLowerCase() === "published"
+    ).length;
+    const drafts = notices.filter(
+      (notice) => (notice.status || "").toLowerCase() === "draft"
+    ).length;
+    const important = notices.filter((notice) => notice.isImportant).length;
+    const expired = notices.filter((notice) => {
+      if (!notice.expiryDate) {
+        return false;
+      }
+      return new Date(notice.expiryDate) < now;
+    }).length;
+    return { total, published, drafts, important, expired };
   }, [notices]);
 
-  const calculateStats = () => {
-    const now = new Date();
-    const newStats = {
-      total: notices.length,
-      published: notices.filter((n) => n.status === "published").length,
-      drafts: notices.filter((n) => n.status === "draft").length,
-      expired: notices.filter(
-        (n) => n.expiryDate && new Date(n.expiryDate) < now
-      ).length,
-      important: notices.filter((n) => n.isImportant).length,
-    };
-    setStats(newStats);
-  };
+  const filteredNotices = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return notices
+      .filter((notice) => {
+        const matchesQuery = query
+          ? [notice.title, notice.content, notice.category]
+              .filter(Boolean)
+              .map((value) => value.toLowerCase())
+              .some((value) => value.includes(query))
+          : true;
 
-  const fetchNotices = async () => {
-    setLoading(true);
+        if (!matchesQuery) {
+          return false;
+        }
+
+        if (statusFilter !== "all") {
+          const status = (notice.status || "").toLowerCase();
+          if (status !== statusFilter) {
+            return false;
+          }
+        }
+
+        if (categoryFilter !== "all") {
+          const category = notice.category || "General";
+          if (category !== categoryFilter) {
+            return false;
+          }
+        }
+
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+      );
+  }, [notices, searchTerm, statusFilter, categoryFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredNotices.length / PAGE_SIZE));
+  const paginatedNotices = filteredNotices.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
     try {
-      const params = {};
-      if (filter.status !== "all") params.status = filter.status;
-      if (filter.category !== "all") params.category = filter.category;
-      if (sortBy) params.sortBy = sortBy;
-      if (sortOrder) params.sortOrder = sortOrder;
-
-      const result = await publicNoticeService.fetchAllNotices(params);
-      setNotices(result?.notices || []);
-    } catch (error) {
-      console.error("Fetch notices error:", error);
-      toast.error(error.message || "Failed to fetch notices");
+      await loadNotices();
+      toast.success("Public notices refreshed.");
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unable to refresh notices.";
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
+  const handleFormChange = (event) => {
+    const { name, value, type, checked } = event.target;
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
   };
 
-  const handleFileChange = (e) => {
-    setAttachments(Array.from(e.target.files));
-  };
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!formData.title || !formData.content || !formData.effectiveDate) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-
-    setSubmitting(true);
-    const submitData = new FormData();
-    Object.keys(formData).forEach((key) => {
-      submitData.append(key, formData[key]);
-    });
-
-    attachments.forEach((file) => {
-      submitData.append("attachments", file);
-    });
-
-    try {
-      let result;
-      if (editingNotice) {
-        result = await publicNoticeService.updateNotice(
-          editingNotice._id,
-          submitData
-        );
-        toast.success("Notice updated successfully");
-      } else {
-        result = await publicNoticeService.createNotice(submitData);
-        toast.success("Notice created successfully");
-      }
-
-      if (result?.success) {
-        resetForm(true);
-        fetchNotices();
-      }
-    } catch (error) {
-      console.error("Submit error:", error);
-      toast.error(
-        editingNotice ? "Failed to update notice" : "Failed to create notice"
-      );
-    } finally {
-      setSubmitting(false);
-    }
+  const handleFileChange = (event) => {
+    const files = Array.from(event.target.files || []);
+    setAttachments(files);
   };
 
-  const handleEdit = (notice) => {
-    setEditingNotice(notice);
-    setFormData({
-      title: notice.title,
-      content: notice.content,
-      category: notice.category,
-      effectiveDate: new Date(notice.effectiveDate).toISOString().split("T")[0],
-      expiryDate: notice.expiryDate
-        ? new Date(notice.expiryDate).toISOString().split("T")[0]
-        : "",
-      isImportant: notice.isImportant,
-      status: notice.status,
-    });
-    setShowForm(true);
-  };
-  const handleDelete = async (noticeId) => {
-    if (window.confirm("Are you sure you want to delete this notice?")) {
-      try {
-        const result = await publicNoticeService.deleteNotice(noticeId);
-        if (result?.success) {
-          toast.success("Notice deleted successfully");
-          fetchNotices();
-        }
-      } catch (error) {
-        console.error("Delete error:", error);
-        toast.error(error.message || "Failed to delete notice");
-      }
-    }
-  };
-  const handlePublish = async (noticeId) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to publish this notice? Once published, it will be visible to all users."
-      )
-    ) {
-      return;
-    }
-
-    try {
-      console.log("Publishing notice with ID:", noticeId);
-      const result = await publicNoticeService.publishNotice(noticeId);
-      console.log("Publish result:", result);
-
-      if (result?.success) {
-        toast.success(
-          "Notice published successfully! It will now appear on the notice board."
-        );
-        await fetchNotices(); // Refresh the notices list
-
-        // Also refresh the notice board data if there's a way to trigger it
-        window.dispatchEvent(new CustomEvent("refreshNoticeBoard"));
-      } else {
-        console.error("Publish failed:", result);
-        toast.error(
-          result.message ||
-            "Failed to publish notice. Please check if the server is running."
-        );
-      }
-    } catch (error) {
-      console.error("Publish error:", error);
-      if (error.response?.status === 401) {
-        toast.error("Authentication failed. Please login again.");
-      } else if (error.response?.status === 404) {
-        toast.error("Notice not found. It may have been deleted.");
-      } else if (error.code === "NETWORK_ERROR" || !error.response) {
-        toast.error(
-          "Cannot connect to server. Please make sure the backend server is running on http://localhost:4000"
-        );
-      } else {
-        toast.error(
-          error.response?.data?.message || "Failed to publish notice"
-        );
-      }
-    }
-  };
-  const resetForm = (closeForm = false) => {
-    setFormData({
-      title: "",
-      content: "",
-      category: "General",
-      effectiveDate: "",
-      expiryDate: "",
-      isImportant: false,
-      status: "draft",
-    });
-    setAttachments([]);
-    setEditingNotice(null);
-    setSelectedTemplate(null);
-    setShowTemplates(false);
-    if (closeForm) {
-      setShowForm(false);
-    }
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchNotices();
-    setRefreshing(false);
-    toast.success("Data refreshed successfully");
-  };
   const applyTemplate = (template) => {
     setFormData((prev) => ({
       ...prev,
       title: template.title,
       content: template.content,
       category: template.category,
-      isImportant: template.isImportant || false,
+      isImportant: Boolean(template.isImportant),
     }));
-    setSelectedTemplate(template);
     setShowTemplates(false);
-    toast.success(`Template "${template.name}" applied`);
+    toast.success(`Template "${template.name}" applied.`);
   };
-  const handleViewNotice = (notice) => {
-    console.log("=== DEBUG: PublicNotice - Original notice data ===");
-    console.log("Notice object:", notice);
-    console.log("Notice keys:", Object.keys(notice));
-    console.log("Notice._id:", notice._id);
-    console.log("Notice.title:", notice.title);
-    console.log("Notice.content:", notice.content);
-    console.log("Notice.category:", notice.category);
-    console.log("Notice.isImportant:", notice.isImportant);
-    console.log("Notice.effectiveDate:", notice.effectiveDate);
-    console.log("Notice.expiryDate:", notice.expiryDate);
-    console.log("Notice.status:", notice.status);
-    console.log("Notice.attachments:", notice.attachments);
-    console.log("=== END DEBUG ===");
 
-    // Transform the notice data to ensure compatibility with NoticeViewer
-    const transformedNotice = {
-      _id: notice._id || notice.id,
-      title: notice.title || "No Title",
-      content: notice.content || "No Content",
+  const handleOpenCreate = () => {
+    resetForm();
+    setIsFormOpen(true);
+  };
+
+  const handleEdit = (notice) => {
+    setEditingNotice(notice);
+    setFormData({
+      title: notice.title || "",
+      content: notice.content || "",
       category: notice.category || "General",
-      isImportant: notice.isImportant || false,
+      effectiveDate: notice.effectiveDate
+        ? new Date(notice.effectiveDate).toISOString().split("T")[0]
+        : "",
+      expiryDate: notice.expiryDate
+        ? new Date(notice.expiryDate).toISOString().split("T")[0]
+        : "",
+      isImportant: Boolean(notice.isImportant),
+      status: notice.status || "draft",
+    });
+    setAttachments([]);
+    setIsFormOpen(true);
+  };
+
+  const handleDelete = async (noticeId) => {
+    if (!window.confirm("Delete this notice?")) {
+      return;
+    }
+
+    try {
+      await publicNoticeService.deleteNotice(noticeId);
+      toast.success("Notice deleted.");
+      await loadNotices();
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || err?.message || "Failed to delete.";
+      toast.error(message);
+    }
+  };
+
+  const handlePublish = async (noticeId) => {
+    if (
+      !window.confirm(
+        "Publish this notice? It will become visible to all users."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await publicNoticeService.publishNotice(noticeId);
+      toast.success("Notice published.");
+      await loadNotices();
+      window.dispatchEvent(new CustomEvent("refreshNoticeBoard"));
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || err?.message || "Failed to publish.";
+      toast.error(message);
+    }
+  };
+
+  const handleSubmit = async (event, overrideStatus) => {
+    event.preventDefault();
+    if (typeof event.stopPropagation === "function") {
+      event.stopPropagation();
+    }
+
+    if (!formData.title.trim() || !formData.content.trim()) {
+      toast.error("Title and content are required.");
+      return;
+    }
+
+    if (!formData.effectiveDate) {
+      toast.error("Select the effective date for the notice.");
+      return;
+    }
+
+    const nextStatus = overrideStatus || formData.status || "draft";
+    setIsSubmitting(true);
+    const payload = new FormData();
+    Object.entries({ ...formData, status: nextStatus }).forEach(
+      ([key, value]) => {
+        payload.append(key, value ?? "");
+      }
+    );
+    attachments.forEach((file) => payload.append("attachments", file));
+
+    try {
+      if (editingNotice) {
+        await publicNoticeService.updateNotice(editingNotice._id, payload);
+        toast.success("Notice updated.");
+      } else {
+        await publicNoticeService.createNotice(payload);
+        toast.success("Notice created.");
+      }
+
+      await loadNotices();
+      handleCloseForm();
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.message ||
+        (editingNotice
+          ? "Failed to update notice."
+          : "Failed to create notice.");
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleViewNotice = (notice) => {
+    const payload = {
+      _id: notice._id || notice.id,
+      title: notice.title || "",
+      content: notice.content || "",
+      category: notice.category || "General",
+      isImportant: Boolean(notice.isImportant),
       effectiveDate: notice.effectiveDate,
       expiryDate: notice.expiryDate,
       status: notice.status || "draft",
@@ -419,1194 +383,641 @@ const PublicNotice = () => {
       createdAt: notice.createdAt,
       updatedAt: notice.updatedAt,
     };
-
-    console.log("=== DEBUG: PublicNotice - Transformed notice data ===");
-    console.log("Transformed notice:", transformedNotice);
-    console.log("=== END DEBUG ===");
-
-    setSelectedNotice(transformedNotice);
+    setSelectedNotice(payload);
   };
 
   const handleCloseNoticeViewer = () => {
     setSelectedNotice(null);
   };
 
-  const getFilteredNotices = () => {
-    let filtered = notices;
-
-    // Search filter
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (notice) =>
-          notice.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          notice.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          notice.category.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Status filter
-    if (filter.status !== "all") {
-      filtered = filtered.filter((notice) => notice.status === filter.status);
-    }
-
-    // Category filter
-    if (filter.category !== "all") {
-      filtered = filtered.filter(
-        (notice) => notice.category === filter.category
-      );
-    }
-
-    // Importance filter
-    if (filter.importance !== "all") {
-      if (filter.importance === "important") {
-        filtered = filtered.filter((notice) => notice.isImportant);
-      } else {
-        filtered = filtered.filter((notice) => !notice.isImportant);
-      }
-    }
-
-    // Date range filter
-    if (filter.dateRange !== "all") {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-      switch (filter.dateRange) {
-        case "active":
-          filtered = filtered.filter((notice) => {
-            const effectiveDate = new Date(notice.effectiveDate);
-            const expiryDate = notice.expiryDate
-              ? new Date(notice.expiryDate)
-              : null;
-            return effectiveDate <= now && (!expiryDate || expiryDate >= now);
-          });
-          break;
-        case "expired":
-          filtered = filtered.filter((notice) => {
-            const expiryDate = notice.expiryDate
-              ? new Date(notice.expiryDate)
-              : null;
-            return expiryDate && expiryDate < now;
-          });
-          break;
-        case "future":
-          filtered = filtered.filter((notice) => {
-            const effectiveDate = new Date(notice.effectiveDate);
-            return effectiveDate > now;
-          });
-          break;
-      }
-    }
-
-    return filtered;
+  const resetForm = () => {
+    setFormData(createEmptyForm());
+    setAttachments([]);
+    setEditingNotice(null);
+    setShowTemplates(false);
   };
 
-  const getPaginatedNotices = () => {
-    const filtered = getFilteredNotices();
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filtered.slice(startIndex, endIndex);
+  const handleCloseForm = () => {
+    resetForm();
+    setIsFormOpen(false);
   };
 
-  const getTotalPages = () => {
-    const filtered = getFilteredNotices();
-    return Math.ceil(filtered.length / itemsPerPage);
-  };
-
-  const handleBulkAction = (action) => {
-    // Implementation for bulk actions
-    console.log(`Bulk action: ${action} for notices:`, selectedNotices);
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "published":
-        return "bg-green-100 text-green-800";
-      case "draft":
-        return "bg-yellow-100 text-yellow-800";
-      case "archived":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-  return (
-    <div className="p-6 space-y-8 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
-      <style>{customStyles}</style>
-      {/* Enhanced Header with Statistics */}
-      <div className="bg-gradient-to-r from-teal-600 via-teal-700 to-blue-700 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
-        {/* Background decoration */}
-        <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20"></div>
-        <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full -ml-16 -mb-16"></div>
-
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between relative z-10">
-          <div className="flex-1">
-            <div className="flex items-center mb-3">
-              <FaBullhorn className="text-yellow-300 mr-2 text-2xl" />
-              <span className="text-teal-100 text-sm font-medium">
-                Public Notice Management
-              </span>
-            </div>
-            <h1 className="text-3xl lg:text-4xl font-bold mb-3">
-              Public Notices
-            </h1>
-            <p className="text-teal-100 text-lg max-w-md">
-              Create, manage, and publish important announcements for all
-              students and staff.
-            </p>{" "}
-            {/* Enhanced statistics cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-teal-100 text-sm">Total Notices</p>
-                    <p className="text-white text-2xl font-bold">
-                      {stats.total}
-                    </p>
-                  </div>
-                  <FaClipboardList className="text-white/70 text-xl" />
-                </div>
-              </div>{" "}
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-teal-100 text-sm">Published</p>
-                    <p className="text-white text-2xl font-bold">
-                      {stats.published}
-                    </p>
-                  </div>
-                  <FaCertificate className="text-green-300 text-xl" />
-                </div>
-              </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-teal-100 text-sm">Important</p>
-                    <p className="text-white text-2xl font-bold">
-                      {stats.important}
-                    </p>
-                  </div>
-                  <FaStar className="text-yellow-300 text-xl" />
-                </div>
-              </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-teal-100 text-sm">Drafts</p>
-                    <p className="text-white text-2xl font-bold">
-                      {stats.drafts}
-                    </p>
-                  </div>
-                  <FaRegFileAlt className="text-yellow-300 text-xl" />
-                </div>
-              </div>
-            </div>
-            {/* Quick stats bar - kept for backwards compatibility */}
-            <div className="flex flex-wrap gap-6 mt-4">
-              <div className="flex items-center text-teal-100">
-                <FaCheckCircle className="mr-2" />
-                <span className="text-sm">
-                  <span className="font-semibold text-white">
-                    {stats.published}
-                  </span>{" "}
-                  Published
-                </span>
-              </div>
-              <div className="flex items-center text-teal-100">
-                <FaRegFileAlt className="mr-2" />
-                <span className="text-sm">
-                  <span className="font-semibold text-white">
-                    {stats.drafts}
-                  </span>{" "}
-                  Drafts
-                </span>
-              </div>
-              <div className="flex items-center text-teal-100">
-                <FaExclamationTriangle className="mr-2" />
-                <span className="text-sm">
-                  <span className="font-semibold text-white">
-                    {stats.important}
-                  </span>{" "}
-                  Important
-                </span>
-              </div>
-            </div>
-          </div>{" "}
-          <div className="mt-6 lg:mt-0 lg:ml-8 flex flex-col gap-3">
-            {/* Quick Actions */}
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => {
-                  if (showForm) {
-                    resetForm(true);
-                  } else {
-                    resetForm();
-                    setShowForm(true);
-                  }
-                }}
-                className="flex items-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all duration-300 border border-white/20 font-medium shadow-lg"
-              >
-                <FaPlus className="mr-2" />
-                {showForm ? "Cancel" : "Create Notice"}
-              </button>{" "}
-              <button
-                onClick={() => setShowTemplates(!showTemplates)}
-                className="flex items-center px-4 py-3 bg-white/10 backdrop-blur-sm text-white rounded-xl hover:bg-white/20 transition-all duration-300 border border-white/20 font-medium"
-              >
-                <FaLayerGroup className="mr-2" />
-                Templates
-                <FaChevronDown
-                  className={`ml-2 transition-transform duration-300 ${
-                    showTemplates ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="flex items-center px-4 py-2 bg-white/10 backdrop-blur-sm text-white rounded-xl hover:bg-white/20 transition-all duration-300 border border-white/20 font-medium"
-              >
-                <FaSync
-                  className={`mr-2 ${refreshing ? "animate-spin" : ""}`}
-                />
-                Refresh
-              </button>
-
-              <button
-                onClick={() =>
-                  setViewMode(viewMode === "grid" ? "list" : "grid")
-                }
-                className="flex items-center px-4 py-2 bg-white/10 backdrop-blur-sm text-white rounded-xl hover:bg-white/20 transition-all duration-300 border border-white/20 font-medium"
-              >
-                {viewMode === "grid" ? (
-                  <FaList className="mr-2" />
-                ) : (
-                  <FaTh className="mr-2" />
-                )}
-                {viewMode === "grid" ? "List" : "Grid"}
-              </button>
-            </div>
-          </div>{" "}
-        </div>
-      </div>
-      {/* Global Template Selector */}
-      {showTemplates && !showForm && (
-        <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 animate-fadeIn">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900 flex items-center">
-                <FaLayerGroup className="mr-3 text-teal-600" />
-                Notice Templates
-              </h3>
-              <p className="text-gray-600 mt-1">
-                Choose a template to quickly create a notice
-              </p>
-            </div>
-            <button
-              onClick={() => setShowTemplates(false)}
-              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <FaTimes />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {noticeTemplates.map((template) => (
-              <div
-                key={template.id}
-                onClick={() => {
-                  setShowForm(true);
-                  applyTemplate(template);
-                }}
-                className="p-4 border border-gray-200 rounded-xl hover:border-teal-300 hover:shadow-lg transition-all duration-300 cursor-pointer group"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <h4 className="font-semibold text-gray-900 group-hover:text-teal-600 transition-colors">
-                    {template.name}
-                  </h4>
-                  {template.isImportant && (
-                    <FaStar className="text-yellow-500" />
-                  )}
-                </div>
-                <div className="flex items-center mb-2">
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
-                    {template.category}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 line-clamp-2 group-hover:text-gray-700 transition-colors">
-                  {template.content}
-                </p>
-                <div className="mt-3 flex items-center text-teal-600 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                  <FaPlus className="mr-1" />
-                  Use Template
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {/* Enhanced Form Section with Animation */}
-      {showForm && (
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 transform transition-all duration-500 ease-out animate-fadeIn">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-                <div className="p-2 bg-teal-100 rounded-lg mr-3">
-                  <FaFileAlt className="text-teal-600" />
-                </div>
-                {editingNotice ? "Edit Notice" : "Create New Notice"}
-              </h2>
-              <p className="text-gray-600 mt-1">
-                {editingNotice
-                  ? "Update the notice details below"
-                  : "Fill in the details to create a new public notice"}
-              </p>
-
-              {/* Progress indicator for form completion */}
-              <div className="mt-4">
-                <div className="flex items-center text-sm text-gray-600">
-                  <FaChartLine className="mr-2 text-teal-600" />
-                  Form completion:{" "}
-                  {Math.round(
-                    (((formData.title ? 1 : 0) +
-                      (formData.content ? 1 : 0) +
-                      (formData.effectiveDate ? 1 : 0)) /
-                      3) *
-                      100
-                  )}
-                  %
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div
-                    className="bg-gradient-to-r from-teal-500 to-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.round(
-                        (((formData.title ? 1 : 0) +
-                          (formData.content ? 1 : 0) +
-                          (formData.effectiveDate ? 1 : 0)) /
-                          3) *
-                          100
-                      )}%`,
-                    }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Template Selector */}
-            <div className="relative">
-              <button
-                onClick={() => setShowTemplates(!showTemplates)}
-                className="flex items-center px-4 py-2 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-colors text-sm font-medium border border-teal-200"
-              >
-                <FaLayerGroup className="mr-2" />
-                Templates
-                <FaChevronDown
-                  className={`ml-2 transition-transform ${
-                    showTemplates ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {showTemplates && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-10 max-h-80 overflow-y-auto">
-                  <div className="p-3 border-b border-gray-100">
-                    <h3 className="font-semibold text-gray-900 text-sm">
-                      Quick Templates
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Click to apply a template
-                    </p>
-                  </div>
-                  {noticeTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      onClick={() => applyTemplate(template)}
-                      className="w-full text-left p-3 hover:bg-gray-50 border-b border-gray-50 last:border-b-0 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900 text-sm">
-                            {template.name}
-                          </h4>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {template.category}
-                          </p>
-                        </div>
-                        {template.isImportant && (
-                          <FaStar className="text-yellow-500 text-xs" />
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Notice Title *
-                </label>
-                <input
-                  type="text"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleInputChange}
-                  placeholder="Enter a clear, descriptive title"
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Category *
-                </label>
-                <select
-                  name="category"
-                  value={formData.category}
-                  onChange={handleInputChange}
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                  required
-                >
-                  <option value="General">🔔 General</option>
-                  <option value="Academic">📚 Academic</option>
-                  <option value="Administrative">📋 Administrative</option>
-                  <option value="Events">🎉 Events</option>
-                  <option value="Facilities">
-                    🔧 Facilities / Maintenance
-                  </option>
-                  <option value="Emergency">⚠️ Emergency</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Notice Content *
-              </label>
-              <textarea
-                name="content"
-                value={formData.content}
-                onChange={handleInputChange}
-                rows="6"
-                placeholder="Write the detailed content of your notice here..."
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-y transition-colors"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Effective Date *
-                </label>
-                <input
-                  type="date"
-                  name="effectiveDate"
-                  value={formData.effectiveDate}
-                  onChange={handleInputChange}
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Expiry Date (Optional)
-                </label>
-                <input
-                  type="date"
-                  name="expiryDate"
-                  value={formData.expiryDate}
-                  onChange={handleInputChange}
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Attachments (Optional)
-              </label>
-              <div className="relative">
-                <input
-                  type="file"
-                  name="attachments"
-                  multiple
-                  onChange={handleFileChange}
-                  className="w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 transition-colors border border-gray-300 rounded-xl p-3"
-                />
-                {attachments.length > 0 && (
-                  <div className="mt-3 p-3 bg-teal-50 rounded-lg border border-teal-200">
-                    <div className="flex items-center text-teal-700 text-sm font-medium mb-2">
-                      <FaPaperclip className="mr-2" />
-                      {attachments.length} file(s) selected
-                    </div>
-                    <div className="space-y-1">
-                      {attachments.map((file, index) => (
-                        <div
-                          key={index}
-                          className="text-xs text-teal-600 bg-white rounded px-2 py-1"
-                        >
-                          {file.name}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t border-gray-200">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="isImportant"
-                  name="isImportant"
-                  checked={formData.isImportant}
-                  onChange={handleInputChange}
-                  className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
-                />
-                <label
-                  htmlFor="isImportant"
-                  className="ml-3 text-sm font-medium text-gray-700 flex items-center"
-                >
-                  <FaStar className="text-yellow-500 mr-1" />
-                  Mark as Important
-                </label>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex items-center justify-center px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 focus:ring-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 text-sm font-semibold shadow-lg"
-                >
-                  {submitting ? (
-                    <>
-                      <FaSpinner className="animate-spin mr-2" />
-                      {editingNotice ? "Updating..." : "Creating..."}
-                    </>
-                  ) : (
-                    <>
-                      <FaCheckCircle className="mr-2" />
-                      {editingNotice ? "Update Notice" : "Create Notice"}
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resetForm(true)}
-                  className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-colors text-sm font-medium"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}{" "}
-      {/* Enhanced Search and Filters */}
-      <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <FaSearch className="mr-2 text-teal-600" />
-              Search & Filter Notices
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">
-              Find specific notices quickly
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
-            >
-              <FaFilter className="mr-2" />
-              Advanced Filters
-              <FaChevronDown
-                className={`ml-2 transition-transform ${
-                  showAdvancedFilters ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-
-            <button
-              onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-              className="flex items-center px-4 py-2 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-colors text-sm font-medium border border-teal-200"
-            >
-              {viewMode === "grid" ? (
-                <FaList className="mr-2" />
-              ) : (
-                <FaTh className="mr-2" />
-              )}
-              {viewMode === "grid" ? "List View" : "Grid View"}
-            </button>
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="relative mb-4">
-          <FaSearch className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search notices by title, content, or category..."
-            className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-          />
-        </div>
-
-        {/* Basic Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <select
-            value={filter.status}
-            onChange={(e) => setFilter({ ...filter, status: e.target.value })}
-            className="p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-          >
-            <option value="all">All Statuses</option>
-            <option value="draft">📝 Draft</option>
-            <option value="published">✅ Published</option>
-            <option value="archived">📁 Archived</option>
-          </select>
-
-          <select
-            value={filter.category}
-            onChange={(e) => setFilter({ ...filter, category: e.target.value })}
-            className="p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-          >
-            <option value="all">All Categories</option>
-            <option value="General">🔔 General</option>
-            <option value="Academic">📚 Academic</option>
-            <option value="Administrative">📋 Administrative</option>
-            <option value="Events">🎉 Events</option>
-            <option value="Facilities">🔧 Facilities / Maintenance</option>
-            <option value="Emergency">⚠️ Emergency</option>
-          </select>
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-          >
-            <option value="createdAt">Sort by Created Date</option>
-            <option value="effectiveDate">Sort by Effective Date</option>
-            <option value="title">Sort by Title</option>
-            <option value="category">Sort by Category</option>
-          </select>
-
-          <button
-            onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-            className="flex items-center justify-center px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-          >
-            {sortOrder === "asc" ? (
-              <FaArrowUp className="mr-2" />
-            ) : (
-              <FaArrowDown className="mr-2" />
-            )}
-            {sortOrder === "asc" ? "Ascending" : "Descending"}
-          </button>
-        </div>
-
-        {/* Advanced Filters */}
-        {showAdvancedFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-            <select
-              value={filter.importance}
-              onChange={(e) =>
-                setFilter({ ...filter, importance: e.target.value })
-              }
-              className="p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors bg-white"
-            >
-              <option value="all">All Priorities</option>
-              <option value="important">⭐ Important Only</option>
-              <option value="normal">📄 Normal Priority</option>
-            </select>
-
-            <select
-              value={filter.dateRange}
-              onChange={(e) =>
-                setFilter({ ...filter, dateRange: e.target.value })
-              }
-              className="p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors bg-white"
-            >
-              <option value="all">All Time Ranges</option>
-              <option value="active">📅 Currently Active</option>
-              <option value="future">⏭️ Future Notices</option>
-              <option value="expired">❌ Expired Notices</option>
-            </select>
-          </div>
-        )}
-
-        {/* Results Summary */}
-        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <p className="text-sm text-gray-600">
-            Showing {getPaginatedNotices().length} of{" "}
-            {getFilteredNotices().length} notices
-          </p>
-          {getFilteredNotices().length > itemsPerPage && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <FaChevronDown className="rotate-90" />
-              </button>
-              <span className="text-sm text-gray-600">
-                Page {currentPage} of {getTotalPages()}
-              </span>
-              <button
-                onClick={() =>
-                  setCurrentPage(Math.min(getTotalPages(), currentPage + 1))
-                }
-                disabled={currentPage === getTotalPages()}
-                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <FaChevronDown className="-rotate-90" />
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-      {/* Enhanced Notices List */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20 bg-white rounded-2xl shadow-xl">
-          <div className="text-center">
-            <div className="relative">
-              <FaSpinner className="animate-spin mx-auto text-4xl text-teal-600 mb-4" />
-              <div className="absolute inset-0 rounded-full border-2 border-teal-200 border-t-transparent animate-spin"></div>
-            </div>
-            <p className="text-lg text-gray-600 font-medium">
-              Loading notices...
-            </p>
-            <p className="text-sm text-gray-500 mt-2">
-              Please wait while we fetch the latest notices
-            </p>
-          </div>
-        </div>
-      ) : getPaginatedNotices().length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl shadow-xl">
-          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <FaBullhorn className="text-4xl text-gray-300" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">
-            No notices found
-          </h3>
-          <p className="text-gray-500 mb-6">
-            {searchTerm || filter.status !== "all" || filter.category !== "all"
-              ? "Try adjusting your search criteria or filters"
-              : "Create your first public notice to get started"}
-          </p>
-          {!showForm && (
-            <button
-              onClick={() => {
-                resetForm();
-                setShowForm(true);
-              }}
-              className="inline-flex items-center px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors font-medium shadow-lg"
-            >
-              <FaPlus className="mr-2" />
-              Create First Notice
-            </button>
-          )}
-        </div>
-      ) : (
-        <div
-          className={`grid gap-6 ${
-            viewMode === "grid"
-              ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
-              : "grid-cols-1"
-          }`}
-        >
-          {getPaginatedNotices().map((notice) => (
-            <NoticeCard
-              key={notice._id}
-              notice={notice}
-              viewMode={viewMode}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onPublish={handlePublish}
-              onView={handleViewNotice}
-              expandedCard={expandedCard}
-              setExpandedCard={setExpandedCard}
-            />
-          ))}{" "}
-        </div>
-      )}{" "}
-      {/* NoticeViewer Modal */}
-      {selectedNotice && (
-        <NoticeViewer
-          notice={selectedNotice}
-          onClose={handleCloseNoticeViewer}
-        />
-      )}
-    </div>
-  );
-};
-
-// Enhanced Notice Card Component
-const NoticeCard = ({
-  notice,
-  viewMode,
-  onEdit,
-  onDelete,
-  onPublish,
-  onView,
-  expandedCard,
-  setExpandedCard,
-}) => {
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "published":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "draft":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "archived":
-        return "bg-gray-100 text-gray-800 border-gray-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  const getCategoryIcon = (category) => {
-    switch (category) {
-      case "General":
-        return <FaRegBell className="text-blue-500" />;
-      case "Academic":
-        return <FaGraduationCap className="text-purple-500" />;
-      case "Administrative":
-        return <FaClipboardList className="text-indigo-500" />;
-      case "Events":
-        return <FaCalendarAlt className="text-green-500" />;
-      case "Facilities":
-        return <FaTools className="text-orange-500" />;
-      case "Emergency":
-        return <FaExclamationTriangle className="text-red-500" />;
-      default:
-        return <FaRegFileAlt className="text-gray-500" />;
-    }
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 1) return "Tomorrow";
-    if (diffDays === 0) return "Today";
-    if (diffDays <= 7) return `${diffDays} days ago`;
-
-    return date.toLocaleDateString("en-IN", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const isExpired =
-    notice.expiryDate && new Date(notice.expiryDate) < new Date();
-  const isActive =
-    new Date(notice.effectiveDate) <= new Date() &&
-    (!notice.expiryDate || new Date(notice.expiryDate) >= new Date());
-  const expanded = expandedCard === notice._id;
-
-  if (viewMode === "list") {
+  if (isLoading) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300">
-        <div className="p-6">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0 p-3 rounded-xl bg-gray-50">
-                  {getCategoryIcon(notice.category)}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900 truncate pr-4">
-                      {notice.title}
-                      {notice.isImportant && (
-                        <FaStar className="inline ml-2 text-yellow-500" />
-                      )}
-                    </h3>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span
-                        className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(
-                          notice.status
-                        )}`}
-                      >
-                        {notice.status.charAt(0).toUpperCase() +
-                          notice.status.slice(1)}
-                      </span>
-
-                      {isExpired && (
-                        <span className="px-2 py-1 text-xs font-semibold text-red-700 bg-red-100 rounded-full border border-red-200">
-                          Expired
-                        </span>
-                      )}
-
-                      {isActive && notice.status === "published" && (
-                        <span className="px-2 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-full border border-green-200">
-                          Active
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                    <span className="flex items-center">
-                      <FaTags className="mr-1" />
-                      {notice.category}
-                    </span>
-                    <span className="flex items-center">
-                      <FaCalendarAlt className="mr-1" />
-                      {formatDate(notice.effectiveDate)}
-                    </span>
-                    {notice.expiryDate && (
-                      <span className="flex items-center">
-                        <FaClock className="mr-1" />
-                        Expires {formatDate(notice.expiryDate)}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-gray-700 leading-relaxed">
-                    {expanded
-                      ? notice.content
-                      : `${notice.content.substring(0, 150)}${
-                          notice.content.length > 150 ? "..." : ""
-                        }`}
-                  </p>
-
-                  {notice.content.length > 150 && (
-                    <button
-                      onClick={() =>
-                        setExpandedCard(expanded ? null : notice._id)
-                      }
-                      className="text-teal-600 hover:text-teal-700 text-sm font-medium mt-2 flex items-center"
-                    >
-                      {expanded ? (
-                        <>
-                          <FaChevronUp className="mr-1" />
-                          Show Less
-                        </>
-                      ) : (
-                        <>
-                          <FaChevronDown className="mr-1" />
-                          Read More
-                        </>
-                      )}
-                    </button>
-                  )}
-
-                  {notice.attachments && notice.attachments.length > 0 && (
-                    <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <p className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                        <FaPaperclip className="mr-1" />
-                        Attachments ({notice.attachments.length})
-                      </p>
-                      <div className="space-y-1">
-                        {notice.attachments.map((att, index) => (
-                          <a
-                            key={index}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center text-sm text-teal-600 hover:text-teal-700 hover:underline"
-                          >
-                            <FaDownload className="mr-2" />
-                            {att.filename || `Attachment ${index + 1}`}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-4 border-t border-gray-200 mt-4">
-            <div className="text-xs text-gray-500">
-              Created {formatDate(notice.createdAt)}
-            </div>{" "}
-            <div className="flex gap-2">
-              <button
-                onClick={() => onView(notice)}
-                className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors"
-              >
-                <FaEye className="mr-1" />
-                View
-              </button>
-              {notice.status === "draft" && (
-                <button
-                  onClick={() => onPublish(notice._id)}
-                  className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors"
-                >
-                  <FaCheckCircle className="mr-1" />
-                  Publish
-                </button>
-              )}
-              <button
-                onClick={() => onEdit(notice)}
-                className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                <FaEdit className="mr-1" />
-                Edit
-              </button>
-              <button
-                onClick={() => onDelete(notice._id)}
-                className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
-              >
-                <FaTrash className="mr-1" />
-                Delete
-              </button>
-            </div>
-          </div>
+      <div className="flex min-h-[60vh] items-center justify-center rounded-2xl border border-emerald-100 bg-white">
+        <div className="flex items-center gap-3 text-emerald-700">
+          <span className="h-3 w-3 animate-ping rounded-full bg-emerald-500" />
+          <span className="text-sm font-medium">Loading public notices...</span>
         </div>
       </div>
     );
   }
 
-  // Grid view (default)
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center text-rose-700">
+        <p className="text-base font-semibold">Unable to load public notices</p>
+        <p className="mt-2 text-sm opacity-80">{error}</p>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="mt-4 rounded-lg border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:scale-105">
-      <div className="p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gray-50">
-              {getCategoryIcon(notice.category)}
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 leading-tight">
-                {notice.title}
-                {notice.isImportant && (
-                  <FaStar className="inline ml-2 text-yellow-500" />
-                )}
-              </h3>
-              <p className="text-sm text-gray-600">{notice.category}</p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      <header className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-emerald-900">
+          <FaBullhorn className="h-4 w-4 text-emerald-500" />
+          <h1 className="text-lg font-semibold">Public notices</h1>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-emerald-300"
+          >
+            <FaSync className={isRefreshing ? "animate-spin" : ""} />
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600"
+          >
+            <FaPlus />
+            New notice
+          </button>
+        </div>
+      </header>
 
-          <div className="flex flex-col gap-2 items-end">
-            <span
-              className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(
-                notice.status
-              )}`}
+      <section className="flex flex-wrap gap-2">
+        <StatPill
+          label="Total"
+          value={stats.total}
+          icon={<FaRegFileAlt className="h-3.5 w-3.5" />}
+        />
+        <StatPill
+          label="Published"
+          value={stats.published}
+          icon={<FaCheckCircle className="h-3.5 w-3.5" />}
+          tone="emerald"
+        />
+        <StatPill
+          label="Drafts"
+          value={stats.drafts}
+          icon={<FaRegFileAlt className="h-3.5 w-3.5" />}
+          tone="sky"
+        />
+        <StatPill
+          label="Important"
+          value={stats.important}
+          icon={<FaStar className="h-3.5 w-3.5" />}
+          tone="amber"
+        />
+        <StatPill
+          label="Expired"
+          value={stats.expired}
+          icon={<FaExclamationTriangle className="h-3.5 w-3.5" />}
+          tone="rose"
+        />
+      </section>
+
+      <section className="rounded-2xl border border-emerald-100 bg-white">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-sm font-semibold text-emerald-900">
+            Notice history
+          </h2>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative">
+              <FaSearch className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-emerald-400" />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search by title or content"
+                className="w-full rounded-xl border border-emerald-100 bg-emerald-50/30 py-2.5 pl-9 pr-3 text-sm text-emerald-900 placeholder:text-emerald-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-sm text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
             >
-              {notice.status.charAt(0).toUpperCase() + notice.status.slice(1)}
-            </span>
-
-            {isExpired && (
-              <span className="px-2 py-1 text-xs font-semibold text-red-700 bg-red-100 rounded-full border border-red-200">
-                Expired
-              </span>
-            )}
-
-            {isActive && notice.status === "published" && (
-              <span className="px-2 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-full border border-green-200">
-                Active
-              </span>
-            )}
-          </div>
-        </div>
-
-        <p className="text-gray-700 leading-relaxed mb-4 line-clamp-3">
-          {notice.content}
-        </p>
-
-        <div className="space-y-2 text-sm text-gray-600 mb-4">
-          <div className="flex items-center">
-            <FaCalendarAlt className="mr-2" />
-            <span>Effective: {formatDate(notice.effectiveDate)}</span>
-          </div>
-          {notice.expiryDate && (
-            <div className="flex items-center">
-              <FaClock className="mr-2" />
-              <span>Expires: {formatDate(notice.expiryDate)}</span>
-            </div>
-          )}
-          <div className="flex items-center">
-            <FaRegClock className="mr-2" />
-            <span>Created: {formatDate(notice.createdAt)}</span>
-          </div>
-        </div>
-
-        {notice.attachments && notice.attachments.length > 0 && (
-          <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <p className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-              <FaPaperclip className="mr-1" />
-              {notice.attachments.length} Attachment(s)
-            </p>
-            <div className="space-y-1">
-              {notice.attachments.slice(0, 2).map((att, index) => (
-                <a
-                  key={index}
-                  href={att.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-xs text-teal-600 hover:text-teal-700 hover:underline truncate"
-                >
-                  {att.filename || `Attachment ${index + 1}`}
-                </a>
+              <option value="all">All statuses</option>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                </option>
               ))}
-              {notice.attachments.length > 2 && (
-                <p className="text-xs text-gray-500">
-                  +{notice.attachments.length - 2} more files
-                </p>
-              )}
-            </div>
+            </select>
+            <select
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+              className="rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-sm text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            >
+              <option value="all">All categories</option>
+              {CATEGORY_OPTIONS.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {filteredNotices.length === 0 ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 p-6 text-emerald-600">
+            <p className="text-sm font-medium">No notices match the filters</p>
+            <p className="text-xs opacity-70">
+              Adjust the filters or create a new notice to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-emerald-50 text-sm text-emerald-900">
+              <thead className="bg-emerald-50/60 text-left text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                <tr>
+                  <th className="px-4 py-3">#</th>
+                  <th className="px-4 py-3">Notice</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Effective</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-emerald-50">
+                {paginatedNotices.map((notice, index) => {
+                  const rowNumber = (currentPage - 1) * PAGE_SIZE + index + 1;
+                  const isExpired = Boolean(
+                    notice.expiryDate &&
+                      new Date(notice.expiryDate) < new Date()
+                  );
+                  const isScheduled = Boolean(
+                    notice.effectiveDate &&
+                      new Date(notice.effectiveDate) > new Date()
+                  );
+
+                  return (
+                    <tr key={notice._id} className="hover:bg-emerald-50/40">
+                      <td className="px-4 py-3 text-xs font-semibold text-emerald-500">
+                        {rowNumber}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-emerald-900">
+                            {notice.title || "Untitled notice"}
+                          </p>
+                          {notice.isImportant ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                              <FaStar className="h-3 w-3" />
+                              Important
+                            </span>
+                          ) : null}
+                          {Array.isArray(notice.attachments) &&
+                          notice.attachments.length > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-600">
+                              <FaPaperclip className="h-3 w-3" />
+                              {notice.attachments.length}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-emerald-500 line-clamp-1">
+                          {notice.content || "No description provided."}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={categoryBadgeClass(notice.category)}>
+                          {notice.category || "General"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-emerald-500">
+                        {formatDate(notice.effectiveDate)}
+                        {notice.expiryDate ? (
+                          <div className="text-[11px] text-emerald-400">
+                            Expires {formatDate(notice.expiryDate)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <span className={statusBadgeClass(notice.status)}>
+                            {formatStatus(notice.status)}
+                          </span>
+                          {isExpired ? (
+                            <span className="text-[11px] font-semibold text-rose-600">
+                              Expired
+                            </span>
+                          ) : isScheduled ? (
+                            <span className="text-[11px] font-semibold text-sky-600">
+                              Scheduled
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleViewNotice(notice)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50"
+                          >
+                            <FaEye className="h-3.5 w-3.5" />
+                            View
+                          </button>
+                          {String(notice.status).toLowerCase() === "draft" ? (
+                            <button
+                              type="button"
+                              onClick={() => handlePublish(notice._id)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
+                            >
+                              <FaCheckCircle className="h-3.5 w-3.5" />
+                              Publish
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(notice)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50"
+                          >
+                            <FaEdit className="h-3.5 w-3.5" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(notice._id)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:border-rose-300 hover:bg-rose-50"
+                          >
+                            <FaTrash className="h-3.5 w-3.5" />
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
-      <div className="bg-gray-50 p-4 border-t border-gray-200">
-        {" "}
-        <div className="flex gap-2 justify-end">
-          <button
-            onClick={() => onView(notice)}
-            className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors"
-          >
-            <FaEye className="mr-1" />
-            View
-          </button>
-          {notice.status === "draft" && (
+
+        <Pagination
+          currentPage={currentPage}
+          pageSize={PAGE_SIZE}
+          totalItems={filteredNotices.length}
+          onPageChange={setCurrentPage}
+        />
+      </section>
+
+      {isFormOpen ? (
+        <Modal onClose={handleCloseForm}>
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-emerald-900">
+                {editingNotice ? "Edit notice" : "Create notice"}
+              </h2>
+              <p className="text-xs text-emerald-600">
+                Provide the announcement details and publish when ready.
+              </p>
+            </div>
             <button
-              onClick={() => onPublish(notice._id)}
-              className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors"
+              type="button"
+              onClick={handleCloseForm}
+              className="rounded-lg border border-emerald-100 p-2 text-emerald-500 transition hover:border-emerald-200 hover:text-emerald-700"
             >
-              <FaCheckCircle className="mr-1" />
-              Publish
+              <FaTimes />
             </button>
-          )}
-          <button
-            onClick={() => onEdit(notice)}
-            className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors"
-          >
-            <FaEdit className="mr-1" />
-            Edit
-          </button>
-          <button
-            onClick={() => onDelete(notice._id)}
-            className="flex items-center px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
-          >
-            <FaTrash className="mr-1" />
-            Delete
-          </button>
-        </div>
-      </div>{" "}
+          </div>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowTemplates((state) => !state)}
+              className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+            >
+              {showTemplates ? "Hide templates" : "Show templates"}
+            </button>
+
+            {showTemplates ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {NOTICE_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => applyTemplate(template)}
+                    className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-left text-xs font-medium text-emerald-800 transition hover:border-emerald-200 hover:bg-emerald-50"
+                  >
+                    <p>{template.name}</p>
+                    <p className="mt-1 text-[11px] text-emerald-500">
+                      {template.category}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-6 grid gap-4 text-sm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                  Title
+                </span>
+                <input
+                  name="title"
+                  value={formData.title}
+                  onChange={handleFormChange}
+                  placeholder="Enter a concise title"
+                  className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  required
+                />
+              </label>
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                  Category
+                </span>
+                <select
+                  name="category"
+                  value={formData.category}
+                  onChange={handleFormChange}
+                  className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  required
+                >
+                  {CATEGORY_OPTIONS.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                Content
+              </span>
+              <textarea
+                name="content"
+                value={formData.content}
+                onChange={handleFormChange}
+                rows={6}
+                placeholder="Write the main announcement here"
+                className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                required
+              />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                  Effective date
+                </span>
+                <input
+                  type="date"
+                  name="effectiveDate"
+                  value={formData.effectiveDate}
+                  onChange={handleFormChange}
+                  className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  required
+                />
+              </label>
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                  Expiry date (optional)
+                </span>
+                <input
+                  type="date"
+                  name="expiryDate"
+                  value={formData.expiryDate}
+                  onChange={handleFormChange}
+                  className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                />
+              </label>
+            </div>
+
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                Attachments (optional)
+              </span>
+              <input
+                type="file"
+                multiple
+                onChange={handleFileChange}
+                className="mt-2 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2.5 text-emerald-900 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-emerald-700 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              />
+              {attachments.length > 0 ? (
+                <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-xs text-emerald-700">
+                  <p className="font-semibold">
+                    {attachments.length} file(s) ready to upload
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {attachments.map((file) => (
+                      <li key={file.name} className="truncate">
+                        {file.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {editingNotice?.attachments?.length ? (
+                <p className="mt-2 text-[11px] text-emerald-500">
+                  This notice has {editingNotice.attachments.length} existing
+                  attachment(s). They remain unless you upload replacements.
+                </p>
+              ) : null}
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2 pt-4 text-xs font-semibold text-emerald-600">
+                <input
+                  type="checkbox"
+                  name="isImportant"
+                  checked={formData.isImportant}
+                  onChange={handleFormChange}
+                  className="h-4 w-4 rounded border border-emerald-200 text-emerald-500 focus:ring-emerald-400"
+                />
+                <span>Mark as important</span>
+              </label>
+              <label className="flex flex-col">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                  Status
+                </span>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleFormChange}
+                  className="mt-2 w-full rounded-xl border border-emerald-100 bg-emerald-50/30 px-3 py-2.5 text-emerald-900 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              >
+                {isSubmitting ? (
+                  <>
+                    <FaSpinner className="animate-spin" />
+                    {editingNotice ? "Saving..." : "Creating..."}
+                  </>
+                ) : (
+                  <>
+                    <FaCheckCircle />
+                    {editingNotice ? "Save as draft" : "Create draft"}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => handleSubmit(event, "published")}
+                disabled={isSubmitting}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              >
+                {isSubmitting ? (
+                  <>
+                    <FaSpinner className="animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  <>
+                    <FaBullhorn />
+                    {editingNotice ? "Save & publish" : "Publish now"}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-lg border border-emerald-200 px-4 py-2 text-xs font-semibold text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50"
+              >
+                Reset
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {selectedNotice ? (
+        <NoticeViewer
+          notice={selectedNotice}
+          onClose={handleCloseNoticeViewer}
+        />
+      ) : null}
     </div>
   );
+};
+
+const Modal = ({ children, onClose }) => (
+  <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-sm">
+    <div className="absolute inset-0" aria-hidden="true" onClick={onClose} />
+    <div
+      className="relative z-10 w-full max-w-3xl rounded-2xl border border-emerald-100 bg-white p-6 shadow-2xl"
+      role="dialog"
+      aria-modal="true"
+    >
+      {children}
+    </div>
+  </div>
+);
+
+const StatPill = ({ label, value, icon, tone = "emerald" }) => {
+  const toneStyles = {
+    emerald: "bg-emerald-50 text-emerald-700 border-emerald-100",
+    amber: "bg-amber-50 text-amber-700 border-amber-100",
+    sky: "bg-sky-50 text-sky-700 border-sky-100",
+    rose: "bg-rose-50 text-rose-700 border-rose-100",
+  };
+
+  const iconStyles = {
+    emerald: "text-emerald-500",
+    amber: "text-amber-500",
+    sky: "text-sky-500",
+    rose: "text-rose-500",
+  };
+
+  const style = toneStyles[tone] || toneStyles.emerald;
+  const iconClass = iconStyles[tone] || iconStyles.emerald;
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${style}`}
+    >
+      <span
+        className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs ${iconClass}`}
+      >
+        {icon}
+      </span>
+      <span>{label}</span>
+      <span className="text-slate-900">{value}</span>
+    </div>
+  );
+};
+
+const formatDate = (value) => {
+  if (!value) {
+    return "--";
+  }
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(new Date(value));
+  } catch (err) {
+    return "--";
+  }
+};
+
+const formatStatus = (status) => {
+  const value = (status || "draft").toLowerCase();
+  if (value === "published") {
+    return "Published";
+  }
+  if (value === "archived") {
+    return "Archived";
+  }
+  return "Draft";
+};
+
+const statusBadgeClass = (status) => {
+  const value = (status || "draft").toLowerCase();
+  if (value === "published") {
+    return "inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700";
+  }
+  if (value === "archived") {
+    return "inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700";
+  }
+  return "inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700";
+};
+
+const categoryBadgeClass = (category) => {
+  switch (category) {
+    case "Academic":
+      return "inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700";
+    case "Administrative":
+      return "inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700";
+    case "Events":
+      return "inline-flex rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700";
+    case "Facilities":
+      return "inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700";
+    case "Emergency":
+      return "inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700";
+    default:
+      return "inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700";
+  }
 };
 
 export default PublicNotice;

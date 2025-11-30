@@ -1,20 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  FaWrench,
-  FaCommentAlt,
-  FaCalendarAlt,
-  FaCreditCard,
-  FaBell,
-  FaUser,
-  FaHome,
-  FaChartLine,
-  FaCheckCircle,
-  FaClock,
-  FaExclamationTriangle,
-  FaSpinner,
-  FaInfoCircle,
-} from "react-icons/fa";
+import { FaTools, FaCalendarAlt, FaBell, FaArrowRight } from "react-icons/fa";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
 import {
   maintenanceService,
@@ -23,30 +9,30 @@ import {
 } from "../../../services/api";
 
 const StudentDashboard = () => {
-  const [studentInfo, setStudentInfo] = useState(null);
-  const [recentRequests, setRecentRequests] = useState([]);
-  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  const [userName, setUserName] = useState("");
+  const [quickStats, setQuickStats] = useState({
+    maintenance: 0,
+    leave: 0,
+    notices: 0,
+  });
+  const [recentRequests, setRecentRequests] = useState([]);
+  const [recentNotices, setRecentNotices] = useState([]);
   const [selectedNotice, setSelectedNotice] = useState(null);
-
-  const handleViewNotice = (notice) => {
-    setSelectedNotice(notice);
-  };
-
-  const handleCloseNoticeViewer = () => {
-    setSelectedNotice(null);
-  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       setLoading(true);
       try {
         const token = localStorage.getItem("token");
-        const userStr = localStorage.getItem("user");
-
-        if (userStr) {
-          setUser(JSON.parse(userStr));
+        const storedUser = localStorage.getItem("user");
+        if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setUserName(parsedUser?.name || parsedUser?.fullName || "");
+          } catch (error) {
+            console.warn("Unable to parse stored student user", error);
+          }
         }
 
         if (token) {
@@ -61,35 +47,36 @@ const StudentDashboard = () => {
           const leave = leaveRes?.data || [];
           const notices = noticesRes?.data || [];
 
-          // Combine and sort recent requests
-          const allRequests = [
-            ...maintenance.map((req) => ({
-              type: "maintenance",
-              title: "Maintenance Request",
-              description:
-                req.description?.substring(0, 50) + "..." ||
-                "Maintenance request",
-              status: req.status || "pending",
-              date: req.createdAt,
-              icon: FaWrench,
-              color: "text-orange-500",
+          const requests = [
+            ...maintenance.map((item) => ({
+              type: "Maintenance",
+              detail: item.description || "Maintenance request submitted",
+              status: item.status || "pending",
+              at: item.createdAt,
             })),
-            ...leave.map((req) => ({
-              type: "leave",
-              title: "Leave Request",
-              description: `${req.reason} (${new Date(
-                req.fromDate
-              ).toLocaleDateString()})`,
-              status: req.status || "pending",
-              date: req.createdAt,
-              icon: FaCalendarAlt,
-              color: "text-purple-500",
+            ...leave.map((item) => ({
+              type: "Leave",
+              detail: item.reason || "Leave request submitted",
+              status: item.status || "pending",
+              at: item.createdAt,
             })),
-          ];
+          ]
+            .filter((entry) => entry.at)
+            .sort((a, b) => new Date(b.at) - new Date(a.at))
+            .slice(0, 5);
 
-          allRequests.sort((a, b) => new Date(b.date) - new Date(a.date));
-          setRecentRequests(allRequests.slice(0, 5));
-          setNotifications(notices.slice(0, 3));
+          const trimmedNotices = notices
+            .filter((notice) => notice.createdAt)
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, 4);
+
+          setQuickStats({
+            maintenance: maintenance.length,
+            leave: leave.length,
+            notices: notices.length,
+          });
+          setRecentRequests(requests);
+          setRecentNotices(trimmedNotices);
         }
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
@@ -101,317 +88,216 @@ const StudentDashboard = () => {
     fetchDashboardData();
   }, []);
 
-  const QuickActionCard = ({
-    icon: Icon,
-    title,
-    description,
-    link,
-    color,
-    bgColor,
-  }) => (
-    <Link
-      to={link}
-      className="bg-white p-4 sm:p-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:scale-105 group"
-    >
-      <div className="flex items-start space-x-4">
-        <div
-          className={`p-3 rounded-lg ${bgColor} group-hover:scale-110 transition-transform`}
-        >
-          <Icon className="text-white text-xl" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">
-            {title}
-          </h3>
-          <p className="text-sm text-gray-600 mt-1">{description}</p>
-        </div>
-      </div>
-    </Link>
-  );
-
-  const RequestItem = ({ request }) => {
-    const { icon: Icon } = request;
-
-    const getStatusColor = (status) => {
-      switch (status?.toLowerCase()) {
-        case "approved":
-        case "resolved":
-          return "text-green-600 bg-green-100";
-        case "pending":
-          return "text-yellow-600 bg-yellow-100";
-        case "rejected":
-          return "text-red-600 bg-red-100";
-        default:
-          return "text-gray-600 bg-gray-100";
-      }
-    };
-
-    return (
-      <div className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg transition-colors">
-        <div className="flex-shrink-0 mt-1">
-          <Icon className={request.color} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900">{request.title}</p>
-          <p className="text-sm text-gray-600 truncate">
-            {request.description}
-          </p>
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-xs text-gray-500">
-              {new Date(request.date).toLocaleDateString()}
-            </p>
-            <span
-              className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
-                request.status
-              )}`}
-            >
-              {request.status || "Submitted"}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-  const NotificationItem = ({ notice }) => (
-    <div className="p-3 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-blue-900">{notice.subject}</p>
-          <p className="text-sm text-blue-700 mt-1 line-clamp-2">
-            {notice.message}
-          </p>
-          <div className="flex items-center justify-between mt-2">
-            <p className="text-xs text-blue-600">
-              {new Date(notice.createdAt).toLocaleDateString()}
-            </p>
-            <button
-              onClick={() => handleViewNotice(notice)}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium underline"
-            >
-              View Full Notice
-            </button>
-          </div>
-        </div>
-        <FaBell className="text-blue-500 ml-2" />
-      </div>
-    </div>
-  );
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <FaSpinner className="animate-spin mr-3 text-2xl text-indigo-600" />
-        <p className="text-lg text-gray-600">Loading dashboard...</p>
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <p className="text-sm text-gray-600">Preparing your dashboard…</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 bg-gray-50 min-h-screen">
-      {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg p-6 text-white">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50 p-6">
+      <section className="mb-6 rounded-3xl bg-white/80 p-6 shadow-xl backdrop-blur-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-              Welcome back{user?.name ? `, ${user.name}` : ""}!
+            <p className="text-xs uppercase tracking-[0.3em] text-indigo-500">
+              Student overview
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold text-gray-900">
+              {getGreeting()}, {userName || "Student"}.
             </h1>
-            <p className="text-indigo-100">
-              Manage your hostel services and stay updated with the latest
-              information.
+            <p className="mt-2 max-w-lg text-sm text-indigo-700">
+              Quick summary of your hostel activity. Use the shortcuts below to
+              jump into key actions.
             </p>
           </div>
-          <div className="mt-4 sm:mt-0 text-right">
-            <p className="text-indigo-200 text-sm">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "long",
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </p>
+          <div className="rounded-xl bg-indigo-100/60 px-4 py-2 text-sm text-indigo-700 shadow-sm">
+            {new Date().toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
           </div>
         </div>
-      </div>
 
-      {/* Quick Actions */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-          <FaHome className="mr-2 text-indigo-600" />
-          Quick Actions
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <QuickActionCard
-            icon={FaWrench}
-            title="Maintenance Request"
-            description="Report room or facility issues"
-            link="/student-login/maintenance-request"
-            bgColor="bg-orange-500"
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Maintenance"
+            value={quickStats.maintenance}
+            helper="Total requests"
+            icon={<FaTools className="text-indigo-600" />}
           />
-          <QuickActionCard
-            icon={FaCommentAlt}
-            title="Feedback"
-            description="Share your hostel experience"
-            link="/student-login/feedback"
-            bgColor="bg-blue-500"
+          <StatCard
+            label="Leave"
+            value={quickStats.leave}
+            helper="Submitted applications"
+            icon={<FaCalendarAlt className="text-indigo-600" />}
           />
-          <QuickActionCard
-            icon={FaCalendarAlt}
-            title="Leave Application"
-            description="Apply for leave from hostel"
-            link="/student-login/leave-apply"
-            bgColor="bg-purple-500"
-          />
-          <QuickActionCard
-            icon={FaCreditCard}
-            title="Fees Payment"
-            description="Pay hostel fees online"
-            link="/student-login/fees-payment"
-            bgColor="bg-green-500"
+          <StatCard
+            label="Notices"
+            value={quickStats.notices}
+            helper="Received updates"
+            icon={<FaBell className="text-indigo-600" />}
           />
         </div>
-      </div>
+      </section>
 
-      {/* Recent Activity and Notifications */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Requests */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center">
-              <FaChartLine className="mr-2 text-indigo-600" />
-              Recent Requests
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-3xl bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Recent requests
             </h2>
             <Link
               to="/student-login/maintenance-request"
-              className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+              className="text-sm text-indigo-600 transition-colors hover:text-indigo-700"
             >
-              View All
+              View submissions
             </Link>
           </div>
-
-          {recentRequests.length > 0 ? (
-            <div className="space-y-1">
-              {recentRequests.map((request, index) => (
-                <RequestItem key={index} request={request} />
-              ))}
-            </div>
+          {recentRequests.length === 0 ? (
+            <p className="mt-6 text-sm text-gray-500">
+              No recent activity. New maintenance or leave submissions will
+              appear here.
+            </p>
           ) : (
-            <div className="text-center py-8 text-gray-500">
-              <FaCheckCircle className="mx-auto text-4xl mb-2 text-gray-300" />
-              <p>No recent requests</p>
-              <p className="text-sm mt-1">
-                Your submitted requests will appear here
-              </p>
-            </div>
+            <ul className="mt-4 space-y-3">
+              {recentRequests.map((item, index) => {
+                const statusLabel = (item.status || "pending").replace(
+                  /^(.)/,
+                  (match) => match.toUpperCase()
+                );
+                return (
+                  <li
+                    key={`${item.type}-${index}`}
+                    className="rounded-2xl border border-gray-100 bg-gradient-to-r from-white to-indigo-50/40 p-4 transition-all hover:translate-x-1 hover:border-indigo-200 hover:shadow-md"
+                  >
+                    <p className="font-medium text-gray-900">{item.type}</p>
+                    <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>{formatDate(item.at)}</span>
+                      <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-600">
+                        {statusLabel}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
 
-        {/* Notifications */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center">
-              <FaBell className="mr-2 text-indigo-600" />
-              Recent Notices
+        <div className="rounded-3xl bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Recent notices
             </h2>
             <Link
               to="/student-login/notices"
-              className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+              className="text-sm text-indigo-600 transition-colors hover:text-indigo-700"
             >
-              View All
+              View board
             </Link>
           </div>
-
-          {notifications.length > 0 ? (
-            <div className="space-y-3">
-              {notifications.map((notice, index) => (
-                <NotificationItem key={index} notice={notice} />
-              ))}
-            </div>
+          {recentNotices.length === 0 ? (
+            <p className="mt-6 text-sm text-gray-500">
+              No new notices. Important announcements will display here.
+            </p>
           ) : (
-            <div className="text-center py-8 text-gray-500">
-              <FaBell className="mx-auto text-4xl mb-2 text-gray-300" />
-              <p>No new notifications</p>
-              <p className="text-sm mt-1">Important updates will appear here</p>
-            </div>
+            <ul className="mt-4 space-y-3">
+              {recentNotices.map((notice, index) => (
+                <li
+                  key={`${notice._id || index}`}
+                  className="rounded-2xl border border-gray-100 p-4 transition-all hover:border-indigo-200 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {notice.subject || notice.title || "Notice"}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-600 line-clamp-2">
+                        {notice.message || notice.description || "View details"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedNotice(notice)}
+                      className="ml-3 text-xs font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
+                    >
+                      Open
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                    <span>{formatDate(notice.createdAt)}</span>
+                    <span className="flex items-center gap-1 text-indigo-600">
+                      Details
+                      <FaArrowRight className="text-xs" />
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500">
-          <div className="flex items-center">
-            <FaCheckCircle className="text-green-500 text-2xl mr-3" />
-            <div>
-              <p className="text-sm font-medium text-gray-600">
-                Account Status
-              </p>
-              <p className="text-lg font-bold text-gray-900">Active</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-500">
-          <div className="flex items-center">
-            <FaHome className="text-blue-500 text-2xl mr-3" />
-            <div>
-              <p className="text-sm font-medium text-gray-600">Hostel Status</p>
-              <p className="text-lg font-bold text-gray-900">Allotted</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-purple-500">
-          <div className="flex items-center">
-            <FaInfoCircle className="text-purple-500 text-2xl mr-3" />
-            <div>
-              <p className="text-sm font-medium text-gray-600">Services</p>
-              <p className="text-lg font-bold text-gray-900">Available</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Help Section */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-          <FaInfoCircle className="mr-2 text-indigo-600" />
-          Need Help?
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold text-gray-900 mb-2">
-              Emergency Contact
-            </h3>
-            <p className="text-sm text-gray-600">
-              For urgent maintenance issues or emergencies, contact the hostel
-              office immediately.
-            </p>
-            <p className="text-sm font-medium text-indigo-600 mt-2">
-              Phone: +91-XXX-XXX-XXXX
-            </p>
-          </div>
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold text-gray-900 mb-2">Office Hours</h3>
-            <p className="text-sm text-gray-600">
-              Hostel office is open for in-person assistance.
-            </p>{" "}
-            <p className="text-sm font-medium text-indigo-600 mt-2">
-              Mon-Fri: 9:00 AM - 6:00 PM
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* NoticeViewer Modal */}
-      {selectedNotice && (
+      {selectedNotice ? (
         <NoticeViewer
           notice={selectedNotice}
-          isOpen={!!selectedNotice}
-          onClose={handleCloseNoticeViewer}
+          isOpen={Boolean(selectedNotice)}
+          onClose={() => setSelectedNotice(null)}
         />
-      )}
+      ) : null}
     </div>
   );
 };
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+};
+
+const formatDate = (date) => {
+  if (!date) return "";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleString();
+};
+
+const StatCard = ({ label, value, helper, icon }) => (
+  <div className="rounded-2xl border border-white bg-white/90 p-5 shadow-md backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-xl">
+    <div className="flex items-center justify-between text-sm text-indigo-700">
+      <span>{label}</span>
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+        {icon}
+      </span>
+    </div>
+    <p className="mt-3 text-3xl font-semibold text-gray-900">{value}</p>
+    <p className="text-xs uppercase tracking-wide text-indigo-500">{helper}</p>
+  </div>
+);
+
+const QuickAction = ({ to, label, description, icon }) => (
+  <Link
+    to={to}
+    className="group flex flex-col justify-between rounded-2xl border border-gray-100 bg-gradient-to-r from-white to-indigo-50/40 p-5 shadow-md transition-all hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl"
+  >
+    <div>
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+        {icon}
+      </span>
+      <p className="mt-3 font-medium text-gray-900">{label}</p>
+      <p className="mt-1 text-sm text-gray-600">{description}</p>
+    </div>
+    <span className="mt-4 flex items-center text-sm text-indigo-600 transition-colors group-hover:text-indigo-700">
+      Go
+      <FaArrowRight className="ml-2 text-xs transition-transform group-hover:translate-x-1" />
+    </span>
+  </Link>
+);
 
 export default StudentDashboard;
