@@ -55,13 +55,7 @@ import {
   FaClipboardList,
   FaCertificate,
 } from "react-icons/fa";
-import {
-  createPublicNotice,
-  getAllPublicNotices,
-  updatePublicNotice,
-  deletePublicNotice,
-  publishPublicNotice,
-} from "../../../services/auth";
+import { publicNoticeService } from "../../../services/api/publicNoticeService";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
 
 const PublicNotice = () => {
@@ -218,15 +212,11 @@ const PublicNotice = () => {
       if (sortBy) params.sortBy = sortBy;
       if (sortOrder) params.sortOrder = sortOrder;
 
-      const result = await getAllPublicNotices(params);
-      if (result.success) {
-        setNotices(result.notices || []);
-      } else {
-        toast.error(result.message || "Failed to fetch notices");
-      }
+      const result = await publicNoticeService.fetchAllNotices(params);
+      setNotices(result?.notices || []);
     } catch (error) {
       console.error("Fetch notices error:", error);
-      toast.error("Failed to fetch notices");
+      toast.error(error.message || "Failed to fetch notices");
     } finally {
       setLoading(false);
     }
@@ -264,14 +254,17 @@ const PublicNotice = () => {
     try {
       let result;
       if (editingNotice) {
-        result = await updatePublicNotice(editingNotice._id, submitData);
+        result = await publicNoticeService.updateNotice(
+          editingNotice._id,
+          submitData
+        );
         toast.success("Notice updated successfully");
       } else {
-        result = await createPublicNotice(submitData);
+        result = await publicNoticeService.createNotice(submitData);
         toast.success("Notice created successfully");
       }
 
-      if (result.success) {
+      if (result?.success) {
         resetForm(true);
         fetchNotices();
       }
@@ -303,16 +296,14 @@ const PublicNotice = () => {
   const handleDelete = async (noticeId) => {
     if (window.confirm("Are you sure you want to delete this notice?")) {
       try {
-        const result = await deletePublicNotice(noticeId);
-        if (result.success) {
+        const result = await publicNoticeService.deleteNotice(noticeId);
+        if (result?.success) {
           toast.success("Notice deleted successfully");
           fetchNotices();
-        } else {
-          toast.error(result.message || "Failed to delete notice");
         }
       } catch (error) {
         console.error("Delete error:", error);
-        toast.error("Failed to delete notice");
+        toast.error(error.message || "Failed to delete notice");
       }
     }
   };
@@ -327,10 +318,10 @@ const PublicNotice = () => {
 
     try {
       console.log("Publishing notice with ID:", noticeId);
-      const result = await publishPublicNotice(noticeId);
+      const result = await publicNoticeService.publishNotice(noticeId);
       console.log("Publish result:", result);
 
-      if (result.success) {
+      if (result?.success) {
         toast.success(
           "Notice published successfully! It will now appear on the notice board."
         );

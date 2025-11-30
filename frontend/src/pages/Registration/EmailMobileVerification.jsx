@@ -1,15 +1,19 @@
 import React, { useState } from "react";
-import { apiConnector } from "../../services/apiconnector";
+import { authService } from "../../services/api/authService";
+
+const labelClass = "mb-2 block text-sm font-medium text-slate-700";
+const inputClass =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 transition-colors focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100";
+const actionButtonClass =
+  "inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 sm:w-auto";
 
 const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
   const [otpSent, setOtpSent] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const [emailExists, setEmailExists] = useState(false);
-  const [accountStatus, setAccountStatus] = useState(null);
   const [isOtpVerifiedLocal, setIsOtpVerifiedLocal] = useState(false);
 
-  // Check email existence in database before allowing to proceed
   const checkEmailExists = async () => {
     if (!formData.email) {
       alert("Please enter your email address first.");
@@ -18,17 +22,16 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
 
     try {
       setIsCheckingEmail(true);
-      const response = await apiConnector("POST", "/auth/check-email", {
-        email: formData.email,
-      });
-      return response.data;
+      const payload = await authService.checkEmail(formData.email);
+      setEmailExists(Boolean(payload?.exists));
+      return payload;
     } catch (error) {
-      console.error("Error checking email:", error);
-      if (error.response?.status === 409) {
+      const existingStatus = error?.payload?.status;
+      if (existingStatus) {
         setEmailExists(true);
-        setAccountStatus(error.response.data.status || "registered");
-        return error.response.data;
+        return error.payload;
       }
+      setEmailExists(false);
       return null;
     } finally {
       setIsCheckingEmail(false);
@@ -42,26 +45,20 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
     }
     setIsCheckingEmail(true);
     try {
-      // Check if email is already registered
       const emailCheck = await checkEmailExists();
       if (emailCheck?.exists) {
         setEmailExists(true);
-        alert(`This email is already registered. Please login instead.`);
-        setIsCheckingEmail(false);
+        alert("This email is already registered. Please login instead.");
         return;
       }
-      // Send OTP
-      const response = await apiConnector("POST", "/auth/send-otp", {
-        email: formData.email,
-      });
+      const response = await authService.sendOtp(formData.email);
       setOtpSent(true);
       alert("OTP sent to your email.");
-      // Optionally store OTP expiration
-      if (response.data.expiresAt) {
-        localStorage.setItem("otpExpiresAt", response.data.expiresAt);
+      if (response.expiresAt) {
+        localStorage.setItem("otpExpiresAt", response.expiresAt);
       }
     } catch (error) {
-      alert(error.response?.data?.message || "Failed to send OTP");
+      alert(error.message || error?.payload?.message || "Failed to send OTP");
     } finally {
       setIsCheckingEmail(false);
     }
@@ -74,63 +71,66 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
     }
     setIsVerifying(true);
     try {
-      const verifyRes = await apiConnector("POST", "/auth/verify-otp", {
+      const verifyRes = await authService.verifyOtp({
         email: formData.email,
         otp: formData.otp,
       });
-      if (verifyRes.data.success) {
+      if (verifyRes.success) {
         alert("OTP verified successfully!");
         setIsOtpVerifiedLocal(true);
-        onOtpVerified(true); // Enable Next button in parent
+        onOtpVerified(true);
       } else {
         alert("Invalid OTP. Please try again.");
         setIsOtpVerifiedLocal(false);
         onOtpVerified(false);
       }
     } catch (error) {
-      alert(error.response?.data?.message || "Failed to verify OTP");
+      alert(error.message || error?.payload?.message || "Failed to verify OTP");
       setIsOtpVerifiedLocal(false);
       onOtpVerified(false);
     } finally {
       setIsVerifying(false);
     }
   };
-  return (
-    <div className="space-y-4 sm:space-y-5 animate-fadeIn">
-      <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 border-b border-gray-200 pb-2">
-        Email & Mobile Verification
-      </h2>
 
-      <div className="space-y-4 sm:space-y-5">
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
+          Verify Your Contact Details
+        </h2>
+        <p className="mt-2 text-sm text-slate-500">
+          We will send a one-time password to confirm your email before you can
+          continue.
+        </p>
+      </div>
+
+      <div className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Email Address *
-          </label>
+          <label className={labelClass}>Email Address *</label>
           <input
             type="email"
             name="email"
             value={formData.email}
             onChange={handleChange}
-            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300 text-sm sm:text-base min-h-[44px] touch-manipulation"
+            className={inputClass}
+            placeholder="name@example.com"
             required
-            placeholder="Enter your email address"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            We'll send a verification code to this email
+          <p className="mt-1 text-xs text-slate-400">
+            A verification code will be sent to this address.
           </p>
           {emailExists && (
-            <p className="text-xs text-red-500 mt-1">
-              This email is already registered. Please use a different email or
-              login.
+            <p className="mt-2 text-xs text-rose-600">
+              This email is already registered. Please sign in instead.
             </p>
           )}
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Mobile Number *
-          </label>
-          <div className="flex">
-            <span className="inline-flex items-center px-2 sm:px-3 text-sm sm:text-base text-gray-500 bg-gray-100 rounded-l-md border border-r-0 border-gray-300">
+          <label className={labelClass}>Mobile Number *</label>
+          <div className="flex rounded-lg border border-slate-300 bg-white focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-100">
+            <span className="flex items-center px-3 text-sm text-slate-500">
               +91
             </span>
             <input
@@ -138,96 +138,94 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
               name="mobile"
               value={formData.mobile}
               onChange={handleChange}
-              className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300 text-sm sm:text-base min-h-[44px] touch-manipulation"
-              required
+              className="flex-1 rounded-r-lg border-0 px-3 py-2 text-sm text-slate-900 focus:outline-none"
               placeholder="Enter your mobile number"
+              required
             />
           </div>
-        </div>{" "}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Password *
-          </label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300 text-sm sm:text-base min-h-[44px] touch-manipulation"
-            required
-            placeholder="Enter your password"
-          />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Confirm Password *
-          </label>
-          <input
-            type="password"
-            name="confirmPassword"
-            value={formData.confirmPassword}
-            onChange={handleChange}
-            className={`w-full px-3 sm:px-4 py-2 border ${
-              formData.password &&
+
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Password *</label>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              className={inputClass}
+              placeholder="Create a password"
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Confirm Password *</label>
+            <input
+              type="password"
+              name="confirmPassword"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              className={`${inputClass} ${
+                formData.password &&
+                formData.confirmPassword &&
+                formData.password !== formData.confirmPassword
+                  ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
+                  : ""
+              }`}
+              placeholder="Re-enter password"
+              required
+            />
+            {formData.password &&
               formData.confirmPassword &&
-              formData.password !== formData.confirmPassword
-                ? "border-red-500"
-                : "border-gray-300"
-            } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300 text-sm sm:text-base min-h-[44px] touch-manipulation`}
-            required
-            placeholder="Confirm your password"
-          />
-          {formData.password &&
-            formData.confirmPassword &&
-            formData.password !== formData.confirmPassword && (
-              <p className="text-sm text-red-500 mt-1">
-                Passwords do not match.
-              </p>
-            )}
+              formData.password !== formData.confirmPassword && (
+                <p className="mt-2 text-xs text-rose-600">
+                  Passwords do not match.
+                </p>
+              )}
+          </div>
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Verification OTP *
-          </label>
-          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+          <label className={labelClass}>Verification OTP *</label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <input
               type="text"
               name="otp"
               value={formData.otp}
               onChange={handleChange}
-              className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300 text-sm sm:text-base min-h-[44px] touch-manipulation"
+              className={inputClass}
               placeholder="Enter OTP"
-              required
               disabled={!otpSent}
+              required
             />
-            {otpSent && !isOtpVerifiedLocal && !isVerifying ? (
+            {!otpSent ? (
               <button
-                className={`w-full sm:w-auto px-4 py-2 ${
+                className={`${actionButtonClass} ${
+                  isCheckingEmail
+                    ? "cursor-not-allowed bg-slate-300"
+                    : "bg-sky-600 hover:bg-sky-700"
+                }`}
+                onClick={sendOtp}
+              >
+                Send OTP
+              </button>
+            ) : (
+              <button
+                className={`${actionButtonClass} ${
                   isVerifying
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-green-600 hover:bg-green-700"
-                } text-white rounded-lg transition-all duration-300 transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-green-500 min-h-[44px] touch-manipulation font-medium text-sm sm:text-base`}
+                    ? "cursor-not-allowed bg-slate-300"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
                 onClick={verifyOtp}
                 disabled={isVerifying}
               >
                 {isVerifying ? "Verifying..." : "Verify OTP"}
               </button>
-            ) : !otpSent ? (
-              <button
-                className={`w-full sm:w-auto px-4 py-2 ${
-                  isCheckingEmail
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700"
-                } text-white rounded-lg transition-all duration-300 transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[44px] touch-manipulation font-medium text-sm sm:text-base`}
-                onClick={sendOtp}
-              >
-                Send OTP
-              </button>
-            ) : null}
+            )}
           </div>
           {otpSent && !isOtpVerifiedLocal && (
             <button
-              className="mt-2 text-sm text-indigo-600 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded"
+              className="mt-2 text-xs font-medium text-sky-600 hover:text-sky-700"
               onClick={sendOtp}
               disabled={isCheckingEmail}
             >
@@ -237,9 +235,9 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
         </div>
       </div>
 
-      <div className="text-xs text-gray-500 mt-4">
-        Fields marked with * are required
-      </div>
+      <p className="text-xs text-slate-400">
+        Fields marked with * are mandatory.
+      </p>
     </div>
   );
 };

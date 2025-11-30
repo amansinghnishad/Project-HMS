@@ -6,46 +6,109 @@ import {
   FaUserShield,
   FaUsers,
 } from "react-icons/fa";
+import Footer from "../../components/Footer/Footer";
+
+const loginOptions = [
+  {
+    to: "/login/student-login",
+    title: "Student portal",
+    description:
+      "Check allotments, request leaves, and stay updated with notices.",
+    icon: FaUserGraduate,
+    badge: "Students",
+  },
+  {
+    to: "/login/chief-provost-login",
+    title: "Chief Provost console",
+    description:
+      "Oversee escalations, policies, and hostel-wide communication.",
+    icon: FaUserTie,
+    badge: "Leadership",
+  },
+  {
+    to: "/login/provost-login",
+    title: "Provost workspace",
+    description:
+      "Track maintenance, guest entries, and activity logs centrally.",
+    icon: FaUserShield,
+    badge: "Administration",
+  },
+  {
+    to: "/login/other-login",
+    title: "Team member access",
+    description:
+      "Facilities and support teams can collaborate and share updates.",
+    icon: FaUsers,
+    badge: "Staff",
+  },
+];
 
 const Login = () => {
   return (
     <>
       <Navbar />
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-50 via-gray-100 to-gray-200 px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 sm:py-6">
-        <div className="login-options flex flex-col items-center gap-4 sm:gap-6 lg:gap-8 p-4 sm:p-6 lg:p-8 bg-white rounded-xl sm:rounded-2xl shadow-xl sm:shadow-2xl max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg w-full">
-          <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2 sm:mb-4 lg:mb-6 text-center leading-tight">
-            Login Options
-          </h1>
-          <Link
-            to="/login/student-login"
-            className="w-full flex items-center justify-center gap-2 sm:gap-3 py-2.5 sm:py-3 lg:py-4 px-3 sm:px-4 lg:px-5 bg-gradient-to-r from-blue-500 to-blue-700 text-white rounded-lg sm:rounded-xl hover:from-blue-600 hover:to-blue-800 shadow-md sm:shadow-lg hover:shadow-xl transition-all duration-300 text-sm sm:text-base lg:text-lg font-medium transform hover:scale-105 active:scale-95"
-          >
-            <FaUserGraduate className="text-lg sm:text-xl" />
-            <span>Student Login</span>
-          </Link>
-          <Link
-            to="/login/chief-provost-login"
-            className="w-full flex items-center justify-center gap-2 sm:gap-3 py-2.5 sm:py-3 lg:py-4 px-3 sm:px-4 lg:px-5 bg-gradient-to-r from-green-500 to-green-700 text-white rounded-lg sm:rounded-xl hover:from-green-600 hover:to-green-800 shadow-md sm:shadow-lg hover:shadow-xl transition-all duration-300 text-sm sm:text-base lg:text-lg font-medium transform hover:scale-105 active:scale-95"
-          >
-            <FaUserTie className="text-lg sm:text-xl" />
-            <span>Chief Provost Login</span>
-          </Link>
-          <Link
-            to="/login/provost-login"
-            className="w-full flex items-center justify-center gap-2 sm:gap-3 py-2.5 sm:py-3 lg:py-4 px-3 sm:px-4 lg:px-5 bg-gradient-to-r from-yellow-500 to-yellow-700 text-white rounded-lg sm:rounded-xl hover:from-yellow-600 hover:to-yellow-800 shadow-md sm:shadow-lg hover:shadow-xl transition-all duration-300 text-sm sm:text-base lg:text-lg font-medium transform hover:scale-105 active:scale-95"
-          >
-            <FaUserShield className="text-lg sm:text-xl" />
-            <span>Provost Login</span>
-          </Link>
-          <Link
-            to="/login/other-login"
-            className="w-full flex items-center justify-center gap-2 sm:gap-3 py-2.5 sm:py-3 lg:py-4 px-3 sm:px-4 lg:px-5 bg-gradient-to-r from-red-500 to-red-700 text-white rounded-lg sm:rounded-xl hover:from-red-600 hover:to-red-800 shadow-md sm:shadow-lg hover:shadow-xl transition-all duration-300 text-sm sm:text-base lg:text-lg font-medium transform hover:scale-105 active:scale-95"
-          >
-            <FaUsers className="text-lg sm:text-xl" />
-            <span>Other Login</span>
-          </Link>
+      <section className="bg-gray-50">
+        <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-12 px-6 py-16 md:px-10 lg:flex-row lg:items-center">
+          <header className="w-full max-w-xl text-slate-800">
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+              Choose your access
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+              One platform for every role
+            </h1>
+            <p className="mt-4 text-base text-slate-600">
+              Select the login that matches your responsibility. Each workspace
+              keeps information focused and permissions aligned with university
+              policy.
+            </p>
+            <ul className="mt-8 space-y-2 text-sm text-slate-600">
+              <li>• Consistent experience across student and admin journeys</li>
+              <li>• OTP-enabled recovery and session protection</li>
+              <li>• Built to mirror the rest of the HMS interface</li>
+            </ul>
+          </header>
+
+          <div className="w-full max-w-3xl">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {loginOptions.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <Link
+                    key={option.to}
+                    to={option.to}
+                    className="group flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between">
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-600">
+                        {option.badge}
+                      </span>
+                      <div className="rounded-full bg-slate-100 p-3 text-lg text-slate-500 transition group-hover:bg-blue-50 group-hover:text-blue-600">
+                        <Icon />
+                      </div>
+                    </div>
+                    <h2 className="mt-6 text-xl font-semibold text-slate-900">
+                      {option.title}
+                    </h2>
+                    <p className="mt-3 text-sm text-slate-600">
+                      {option.description}
+                    </p>
+                    <span className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition group-hover:gap-3">
+                      Continue
+                      <span aria-hidden="true">→</span>
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-10 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+              <p>
+                Need an account? Request access from your hostel administrator.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+      <Footer />
     </>
   );
 };

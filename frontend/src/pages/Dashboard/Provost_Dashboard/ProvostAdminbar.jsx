@@ -11,8 +11,8 @@ import {
   FaSignOutAlt,
   FaDatabase,
 } from "react-icons/fa";
-import { logout } from "../../../services/auth";
 import { toast } from "react-hot-toast";
+import { authService } from "../../../services/api/authService";
 
 const ProvostAdminbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -27,28 +27,20 @@ const ProvostAdminbar = () => {
   };
   const handleLogout = async () => {
     try {
-      const token =
-        localStorage.getItem("token") || sessionStorage.getItem("token");
-
-      if (token) {
-        const result = await logout(token);
-        if (result && result.success) {
-          // Navigate to login page after successful logout
-          navigate("/login");
-        }
-      } else {
-        // If no token found, still clear storage and redirect
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        sessionStorage.removeItem("token");
-        sessionStorage.removeItem("user");
-        toast.success("Logged out successfully!");
-        navigate("/login");
-      }
+      await authService.logout();
+      toast.success("Logged out successfully!");
     } catch (error) {
       console.error("Logout error:", error);
-      toast.error("Error during logout");
+      toast.error(
+        error.message || error?.payload?.message || "Error during logout"
+      );
     }
+
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+    navigate("/login");
   };
 
   return (

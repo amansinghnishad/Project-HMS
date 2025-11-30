@@ -1,6 +1,5 @@
 // components/MaintenanceRequest.js
-import React, { useState, useEffect, useRef } from "react";
-import { apiConnector } from "../../../services/apiconnector";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   FaCamera,
   FaCheckCircle,
@@ -13,6 +12,7 @@ import {
   FaPaperPlane,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
+import { maintenanceService } from "../../../services/api";
 
 const MaintenanceRequest = () => {
   const [requestType, setRequestType] = useState("");
@@ -106,32 +106,24 @@ const MaintenanceRequest = () => {
   ];
 
   // Fetch existing requests on component mount
-  useEffect(() => {
-    const fetchRequests = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem("token");
-        const response = await apiConnector(
-          "GET",
-          "/service-requests/my",
-          null,
-          { Authorization: `Bearer ${token}` }
-        );
-        const data = response.data;
-        if (data.success) {
-          setRequests(data.data || []);
-        } else {
-          setRequests(data || []); // Fallback for old format
-        }
-      } catch (err) {
-        setError(err.message);
-        console.error("Error fetching requests:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchRequests();
+  const fetchRequests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await maintenanceService.fetchUserRequests();
+      setRequests(response?.data || []);
+      setError(null);
+    } catch (err) {
+      console.error("Error fetching requests:", err);
+      setError(err?.message || "Failed to fetch maintenance requests.");
+      toast.error(err?.message || "Failed to fetch maintenance requests.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchRequests();
+  }, [fetchRequests]);
 
   // Cleanup camera stream on component unmount
   useEffect(() => {
@@ -205,37 +197,20 @@ const MaintenanceRequest = () => {
     const toastId = toast.loading("Submitting maintenance request...");
 
     try {
-      const token = localStorage.getItem("token");
       const payload = { requestType, description, priority };
       if (photoDataUrl) {
         payload.photo = photoDataUrl;
       }
-      const response = await apiConnector(
-        "POST",
-        "/service-requests",
-        payload,
-        { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-      );
-      const responseData = response.data;
-      if (responseData.success) {
-        const newRequest = responseData.data;
-        setRequests([newRequest, ...requests]);
+      const response = await maintenanceService.submitRequest(payload);
+      const newRequest = response?.data;
+      setRequests((prev) => (newRequest ? [newRequest, ...prev] : prev));
 
-        toast.success(
-          responseData.message || "Maintenance request submitted successfully!",
-          {
-            id: toastId,
-          }
-        );
-      } else {
-        // Fallback for old response format
-        const newRequest = responseData;
-        setRequests([newRequest, ...requests]);
-
-        toast.success("Maintenance request submitted successfully!", {
+      toast.success(
+        response?.message || "Maintenance request submitted successfully!",
+        {
           id: toastId,
-        });
-      }
+        }
+      );
 
       // Reset form
       setRequestType("");
@@ -245,10 +220,7 @@ const MaintenanceRequest = () => {
       setCameraError(null);
       setSubmissionSuccess(true);
 
-      // Refresh after success
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+      await fetchRequests();
     } catch (err) {
       setError(err.message || "Failed to submit request. Please try again.");
       toast.error(err.message || "Failed to submit request", { id: toastId });

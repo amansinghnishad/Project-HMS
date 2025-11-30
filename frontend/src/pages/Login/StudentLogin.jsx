@@ -3,6 +3,7 @@ import LoginComp from "../../components/LoginComp/LoginComp";
 import Navbar from "../../components/Navbar/Navbar";
 import { apiConnector } from "../../services/apiconnector";
 import { useNavigate } from "react-router-dom";
+import Footer from "../../components/Footer/Footer";
 
 const StudentLogin = () => {
   const navigate = useNavigate();
@@ -29,14 +30,17 @@ const StudentLogin = () => {
     }
   };
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <Navbar />
       <LoginComp
-        url="/student-login"
         onSubmit={handleSubmit}
         isLoading={isLoading}
+        heading="Student portal"
+        accentTitle="HMS Student Experience"
+        description="Track room allotments, submit requests, and stay aligned with campus updates in real time."
       />
-    </div>
+      <Footer />
+    </>
   );
 };
 

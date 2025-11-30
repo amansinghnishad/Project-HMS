@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from "react";
-import {
-  allotHostelRooms,
-  getAllottedStudentsList,
-  getRoomAvailability,
-} from "../../services/auth"; // Import the new API functions
 import { toast } from "react-hot-toast";
+import { allotmentService } from "../../services/api/allotmentService";
 
 const HostelAllotment = () => {
   const [students, setStudents] = useState([]);
@@ -16,12 +12,12 @@ const HostelAllotment = () => {
   useEffect(() => {
     const fetchAvailability = async () => {
       console.log("[HostelAllotment] Fetching initial room availability...");
-      const result = await getRoomAvailability();
+      const result = await allotmentService.fetchRoomAvailability();
       console.log(
         "[HostelAllotment] Initial room availability result:",
         result
       );
-      if (result && result.success) {
+      if (result?.availability) {
         setRoomAvailability(result.availability);
       }
     };
@@ -32,7 +28,7 @@ const HostelAllotment = () => {
   const fetchAllottedStudents = async () => {
     console.log("[HostelAllotment] Fetching allotted students...");
     setIsLoading(true);
-    const result = await getAllottedStudentsList();
+    const result = await allotmentService.fetchAllottedStudents();
     console.log("[HostelAllotment] Fetch allotted students result:", result);
     if (result && result.success && result.data) {
       const formattedStudents = result.data.map((student) => ({
@@ -72,7 +68,7 @@ const HostelAllotment = () => {
   const handleInitiateAllotment = async () => {
     console.log("[HostelAllotment] handleInitiateAllotment called");
     setIsLoading(true);
-    const result = await allotHostelRooms(); // This function is in services/auth.js and has its own logs
+    const result = await allotmentService.triggerAllotment();
     console.log("[HostelAllotment] allotHostelRooms API call result:", result);
 
     if (result && result.success) {
@@ -83,7 +79,8 @@ const HostelAllotment = () => {
         "[HostelAllotment] Allotment successful, now fetching updated student list and availability..."
       );
       await fetchAllottedStudents(); // Refresh the list of allotted students
-      const updatedAvailability = await getRoomAvailability(); // Refresh availability
+      const updatedAvailability =
+        await allotmentService.fetchRoomAvailability(); // Refresh availability
       console.log(
         "[HostelAllotment] Updated room availability result:",
         updatedAvailability

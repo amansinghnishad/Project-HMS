@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import {
   FaCommentDots,
   FaPaperPlane,
@@ -10,6 +9,7 @@ import {
   FaExclamationTriangle,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
+import { feedbackService } from "../../../services/api";
 
 const Feedback = () => {
   const [feedbackType, setFeedbackType] = useState("");
@@ -19,22 +19,18 @@ const Feedback = () => {
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
   const [feedbackHistory, setFeedbackHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [loading, setLoading] = useState(false); // Fetch feedback history
+  const [loading, setLoading] = useState(false);
+
   const fetchFeedbackHistory = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_BASE_URL}/feedback`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (response.data.success) {
-        setFeedbackHistory(response.data.data || []);
-      }
+      const response = await feedbackService.fetchUserFeedback();
+      setFeedbackHistory(response?.data || []);
     } catch (error) {
       console.error("Error fetching feedback history:", error);
+      toast.error(
+        error?.message || "Failed to fetch feedback history. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -104,18 +100,8 @@ const Feedback = () => {
       if (feedbackType === "Other") {
         payload.customSubject = customSubject;
       }
-      const token = localStorage.getItem("token");
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_BASE_URL}/feedback/submit`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      if (response.data.success) {
+      const response = await feedbackService.submitFeedback(payload);
+      if (response?.success) {
         toast.success(
           "Feedback submitted successfully! Thank you for your input.",
           { id: toastId }
@@ -134,26 +120,13 @@ const Feedback = () => {
         setTimeout(() => {
           setShowHistory(true);
         }, 1000);
-      } else {
-        throw new Error(response.data.error || "Failed to submit feedback");
       }
     } catch (error) {
       console.error("Error details:", error);
-      if (error.response) {
-        toast.error(
-          error.response.data.error ||
-            "Failed to submit feedback. Please try again.",
-          { id: toastId }
-        );
-      } else if (error.request) {
-        toast.error("No response from server. Please check your connection.", {
-          id: toastId,
-        });
-      } else {
-        toast.error("An unexpected error occurred. Please try again.", {
-          id: toastId,
-        });
-      }
+      toast.error(
+        error?.message || "Failed to submit feedback. Please try again.",
+        { id: toastId }
+      );
     } finally {
       setIsSubmitting(false);
     }

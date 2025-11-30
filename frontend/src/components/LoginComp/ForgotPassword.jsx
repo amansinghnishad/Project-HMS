@@ -1,11 +1,7 @@
 import React, { useState } from "react";
 import { FaEnvelope, FaLock, FaKey } from "react-icons/fa";
 import { toast } from "react-hot-toast";
-import {
-  sendResetPasswordOTP,
-  verifyResetPasswordOTP,
-  resetPassword,
-} from "../../services/auth";
+import { authService } from "../../services/api/authService";
 
 const ForgotPassword = ({ onBackToLogin }) => {
   const [step, setStep] = useState(1); // 1: Email, 2: OTP, 3: New Password, 4: Success
@@ -41,9 +37,8 @@ const ForgotPassword = ({ onBackToLogin }) => {
   const validatePassword = (password) => {
     return password.length >= 6;
   };
-  const handleSendOTP = async (e) => {
-    e.preventDefault();
-
+  const handleSendOTP = async (e, { showSuccessToast = true } = {}) => {
+    e?.preventDefault?.();
     if (!formData.email) {
       setErrors({ email: "Email is required" });
       return;
@@ -56,15 +51,19 @@ const ForgotPassword = ({ onBackToLogin }) => {
 
     setLoading(true);
     try {
-      const result = await sendResetPasswordOTP(formData.email);
-      if (result?.success) {
-        setStep(2);
-        setErrors({});
+      await authService.sendResetPasswordOtp(formData.email);
+      setStep(2);
+      setErrors({});
+      if (showSuccessToast) {
         toast.success("OTP sent successfully to your email!");
       }
     } catch (error) {
       console.error("Error sending OTP:", error);
-      toast.error("Failed to send OTP. Please try again.");
+      toast.error(
+        error.message ||
+          error?.payload?.message ||
+          "Failed to send OTP. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -84,15 +83,20 @@ const ForgotPassword = ({ onBackToLogin }) => {
 
     setLoading(true);
     try {
-      const result = await verifyResetPasswordOTP(formData.email, formData.otp);
-      if (result?.success) {
-        setStep(3);
-        setErrors({});
-        toast.success("OTP verified successfully!");
-      }
+      await authService.verifyResetPasswordOtp({
+        email: formData.email,
+        otp: formData.otp,
+      });
+      setStep(3);
+      setErrors({});
+      toast.success("OTP verified successfully!");
     } catch (error) {
       console.error("Error verifying OTP:", error);
-      toast.error("Invalid OTP. Please try again.");
+      toast.error(
+        error.message ||
+          error?.payload?.message ||
+          "Invalid OTP. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -121,105 +125,82 @@ const ForgotPassword = ({ onBackToLogin }) => {
 
     setLoading(true);
     try {
-      const result = await resetPassword(
-        formData.email,
-        formData.otp,
-        formData.newPassword,
-        formData.confirmPassword
+      await authService.resetPassword({
+        email: formData.email,
+        otp: formData.otp,
+        newPassword: formData.newPassword,
+        confirmPassword: formData.confirmPassword,
+      });
+
+      setErrors({});
+      setStep(4); // Move to success step
+      toast.success(
+        "🎉 Password reset successfully! You can now login with your new password.",
+        {
+          duration: 4000,
+          style: {
+            background: "#10B981",
+            color: "#fff",
+          },
+        }
       );
-      if (result?.success) {
-        setErrors({});
-        setStep(4); // Move to success step
-        toast.success(
-          "🎉 Password reset successfully! You can now login with your new password.",
-          {
-            duration: 4000,
-            style: {
-              background: "#10B981",
-              color: "#fff",
-            },
-          }
-        );
-        // Auto redirect to login after 3 seconds
-        setTimeout(() => {
-          onBackToLogin();
-        }, 3000);
-      }
+      // Auto redirect to login after 3 seconds
+      setTimeout(() => {
+        onBackToLogin();
+      }, 3000);
     } catch (error) {
       console.error("Error resetting password:", error);
-      toast.error("Failed to reset password. Please try again.");
+      toast.error(
+        error.message ||
+          error?.payload?.message ||
+          "Failed to reset password. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   };
   const renderStepIndicator = () => (
-    <div className="flex justify-center mb-8">
-      <div className="flex items-center">
+    <div className="mb-6">
+      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <span className={step >= 1 ? "text-blue-600" : undefined}>Request</span>
+        <span className={step >= 2 ? "text-blue-600" : undefined}>Verify</span>
+        <span className={step >= 3 ? "text-blue-600" : undefined}>Reset</span>
+      </div>
+      <div className="mt-2 h-1 rounded-full bg-slate-200">
         <div
-          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-            step >= 1 ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-600"
-          }`}
-        >
-          1
-        </div>
-        <div
-          className={`w-12 h-1 ${step >= 2 ? "bg-blue-600" : "bg-gray-300"}`}
-        ></div>
-        <div
-          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-            step >= 2 ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-600"
-          }`}
-        >
-          2
-        </div>
-        <div
-          className={`w-12 h-1 ${step >= 3 ? "bg-blue-600" : "bg-gray-300"}`}
-        ></div>
-        <div
-          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-            step >= 3 ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-600"
-          }`}
-        >
-          3
-        </div>
-        {step >= 4 && (
-          <>
-            <div className="w-12 h-1 bg-green-600"></div>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-green-600 text-white">
-              ✓
-            </div>
-          </>
-        )}
+          className="h-full rounded-full bg-blue-500 transition-all"
+          style={{ width: `${Math.min((step - 1) / 2, 1) * 100}%` }}
+        />
       </div>
     </div>
   );
 
   const renderEmailStep = () => (
-    <form onSubmit={handleSendOTP} className="space-y-6">
+    <form onSubmit={(e) => handleSendOTP(e)} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-sm font-medium text-slate-600">
           Enter your registered email address
         </label>
-        <div className="flex items-center border rounded-lg px-4 py-3 hover:shadow-lg focus-within:ring-2 focus-within:ring-blue-500 transition">
-          <FaEnvelope className="text-gray-500 mr-3" />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+          <FaEnvelope className="text-blue-500" />
           <input
             type="email"
             name="email"
             value={formData.email}
             onChange={handleChange}
             placeholder="Enter your email"
-            className="w-full outline-none text-base placeholder-gray-400 focus:placeholder-gray-300"
+            className="w-full border-none bg-transparent text-base text-slate-800 outline-none placeholder:text-slate-400"
             required
           />
         </div>
         {errors.email && (
-          <p className="text-red-500 text-sm mt-1">{errors.email}</p>
+          <p className="mt-1 text-sm text-red-500">{errors.email}</p>
         )}
       </div>
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white transition hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Sending OTP..." : "Send OTP"}
       </button>
@@ -229,11 +210,11 @@ const ForgotPassword = ({ onBackToLogin }) => {
   const renderOTPStep = () => (
     <form onSubmit={handleVerifyOTP} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-sm font-medium text-slate-600">
           Enter the OTP sent to {formData.email}
         </label>
-        <div className="flex items-center border rounded-lg px-4 py-3 hover:shadow-lg focus-within:ring-2 focus-within:ring-blue-500 transition">
-          <FaKey className="text-gray-500 mr-3" />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+          <FaKey className="text-blue-500" />
           <input
             type="text"
             name="otp"
@@ -241,45 +222,44 @@ const ForgotPassword = ({ onBackToLogin }) => {
             onChange={handleChange}
             placeholder="Enter 6-digit OTP"
             maxLength="6"
-            className="w-full outline-none text-base placeholder-gray-400 focus:placeholder-gray-300"
+            className="w-full border-none bg-transparent text-base text-slate-800 outline-none placeholder:text-slate-400"
             required
           />
         </div>
         {errors.otp && (
-          <p className="text-red-500 text-sm mt-1">{errors.otp}</p>
+          <p className="mt-1 text-sm text-red-500">{errors.otp}</p>
         )}
       </div>
-      <div className="flex space-x-3">
+      <div className="flex gap-3">
         <button
           type="button"
           onClick={() => setStep(1)}
-          className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-lg hover:bg-gray-400 transition text-base font-semibold"
+          className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-base font-semibold text-slate-600 transition hover:border-blue-500 hover:text-blue-600"
         >
           Back
         </button>
         <button
           type="submit"
           disabled={loading}
-          className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 rounded-xl bg-blue-600 py-3 text-base font-semibold text-white transition hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Verifying..." : "Verify OTP"}
         </button>
-      </div>{" "}
+      </div>
       <button
         type="button"
         onClick={async () => {
-          if (!loading) {
-            toast.loading("Resending OTP...", { id: "resend-otp" });
-            try {
-              await handleSendOTP({ preventDefault: () => {} });
-              toast.success("OTP resent successfully!", { id: "resend-otp" });
-            } catch (error) {
-              toast.error("Failed to resend OTP", { id: "resend-otp" });
-            }
+          if (loading) return;
+          toast.loading("Resending OTP...", { id: "resend-otp" });
+          try {
+            await handleSendOTP(undefined, { showSuccessToast: false });
+            toast.success("OTP resent successfully!", { id: "resend-otp" });
+          } catch (error) {
+            toast.error("Failed to resend OTP", { id: "resend-otp" });
           }
         }}
         disabled={loading}
-        className="w-full text-blue-600 hover:underline text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full text-sm font-semibold text-blue-600 transition hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
         Didn't receive OTP? Resend
       </button>
@@ -289,57 +269,57 @@ const ForgotPassword = ({ onBackToLogin }) => {
   const renderPasswordStep = () => (
     <form onSubmit={handleResetPassword} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-sm font-medium text-slate-600">
           New Password
         </label>
-        <div className="flex items-center border rounded-lg px-4 py-3 hover:shadow-lg focus-within:ring-2 focus-within:ring-blue-500 transition">
-          <FaLock className="text-gray-500 mr-3" />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+          <FaLock className="text-blue-500" />
           <input
             type="password"
             name="newPassword"
             value={formData.newPassword}
             onChange={handleChange}
             placeholder="Enter new password"
-            className="w-full outline-none text-base placeholder-gray-400 focus:placeholder-gray-300"
+            className="w-full border-none bg-transparent text-base text-slate-800 outline-none placeholder:text-slate-400"
             required
           />
         </div>
         {errors.newPassword && (
-          <p className="text-red-500 text-sm mt-1">{errors.newPassword}</p>
+          <p className="mt-1 text-sm text-red-500">{errors.newPassword}</p>
         )}
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-sm font-medium text-slate-600">
           Confirm New Password
         </label>
-        <div className="flex items-center border rounded-lg px-4 py-3 hover:shadow-lg focus-within:ring-2 focus-within:ring-blue-500 transition">
-          <FaLock className="text-gray-500 mr-3" />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+          <FaLock className="text-blue-500" />
           <input
             type="password"
             name="confirmPassword"
             value={formData.confirmPassword}
             onChange={handleChange}
             placeholder="Confirm new password"
-            className="w-full outline-none text-base placeholder-gray-400 focus:placeholder-gray-300"
+            className="w-full border-none bg-transparent text-base text-slate-800 outline-none placeholder:text-slate-400"
             required
           />
         </div>
         {errors.confirmPassword && (
-          <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>
+          <p className="mt-1 text-sm text-red-500">{errors.confirmPassword}</p>
         )}
       </div>
-      <div className="flex space-x-3">
+      <div className="flex gap-3">
         <button
           type="button"
           onClick={() => setStep(2)}
-          className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-lg hover:bg-gray-400 transition text-base font-semibold"
+          className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-base font-semibold text-slate-600 transition hover:border-blue-500 hover:text-blue-600"
         >
           Back
-        </button>{" "}
+        </button>
         <button
           type="submit"
           disabled={loading}
-          className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 rounded-xl bg-blue-600 py-3 text-base font-semibold text-white transition hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Resetting..." : "Reset Password"}
         </button>
@@ -348,61 +328,142 @@ const ForgotPassword = ({ onBackToLogin }) => {
   );
 
   const renderSuccessStep = () => (
-    <div className="text-center space-y-6">
+    <div className="space-y-6 text-center">
       <div className="flex justify-center">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-          <div className="text-green-600 text-2xl font-bold">✓</div>
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-50">
+          <div className="text-3xl font-bold text-green-600">✓</div>
         </div>
       </div>
       <div>
-        <h3 className="text-xl font-semibold text-green-600 mb-2">
+        <h3 className="mb-2 text-xl font-semibold text-green-600">
           Password Reset Successful!
         </h3>
-        <p className="text-gray-600 mb-4">
+        <p className="mb-4 text-slate-600">
           Your password has been successfully reset. You can now login with your
           new password.
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-slate-500">
           You will be redirected to the login page automatically in a few
           seconds...
         </p>
       </div>
       <button
         onClick={onBackToLogin}
-        className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 transition text-base font-semibold"
+        className="w-full rounded-xl bg-green-600 py-3 text-base font-semibold text-white transition hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-white"
       >
         Go to Login Now
       </button>
     </div>
   );
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 sm:py-6">
-      <div className="bg-white p-4 sm:p-6 md:p-8 lg:p-10 rounded-lg sm:rounded-xl lg:rounded-2xl shadow-lg sm:shadow-xl lg:shadow-2xl w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl">
-        <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-center mb-2 sm:mb-4 text-gray-800 leading-tight">
-          Reset Password
-        </h2>{" "}
-        <p className="text-center text-gray-600 mb-4 sm:mb-6 lg:mb-8 text-sm sm:text-base lg:text-lg">
-          {step === 1 && "Enter your email to receive an OTP"}
-          {step === 2 && "Verify your identity with the OTP"}
-          {step === 3 && "Create a new password"}
-          {step === 4 && "Password reset completed successfully!"}
-        </p>
-        {renderStepIndicator()} {step === 1 && renderEmailStep()}
-        {step === 2 && renderOTPStep()}
-        {step === 3 && renderPasswordStep()}
-        {step === 4 && renderSuccessStep()}
-        {step !== 4 && (
-          <div className="text-center mt-4 sm:mt-6">
-            <button
-              onClick={onBackToLogin}
-              className="text-blue-600 hover:text-blue-800 hover:underline text-xs sm:text-sm lg:text-base transition-colors duration-200 p-1"
-            >
-              Back to Login
-            </button>
+    <section className="bg-gray-50">
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-10 px-6 py-16 md:px-10 lg:flex-row lg:items-start">
+        <aside className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:sticky lg:top-10">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">
+            Help centre
+          </h2>
+          <h3 className="mt-3 text-2xl font-semibold text-slate-900">
+            Password recovery in three steps
+          </h3>
+          <p className="mt-3 text-sm text-slate-600">
+            We&apos;ll send a verification code to the email associated with
+            your hostel account. Follow the steps to regain access securely.
+          </p>
+          <ol className="mt-6 space-y-4 text-sm text-slate-600">
+            <li className="flex gap-3">
+              <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-600">
+                1
+              </span>
+              <div>
+                <p className="font-semibold text-slate-800">Request a code</p>
+                <p className="mt-1 leading-relaxed">
+                  Enter the institutional email you used during registration and
+                  we&apos;ll email you a one-time password.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-600">
+                2
+              </span>
+              <div>
+                <p className="font-semibold text-slate-800">Verify ownership</p>
+                <p className="mt-1 leading-relaxed">
+                  Type the 6-digit code from the email. This confirms the
+                  request came from you.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-600">
+                3
+              </span>
+              <div>
+                <p className="font-semibold text-slate-800">
+                  Create a new password
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  Set a strong password, confirm it, and you&apos;re ready to
+                  sign in again.
+                </p>
+              </div>
+            </li>
+          </ol>
+          <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
+            <p className="font-semibold">Need extra assistance?</p>
+            <p className="mt-1">
+              Contact the hostel digital support team at
+              <a
+                href="mailto:hms-support@lkouniv.ac.in"
+                className="ml-1 font-semibold underline"
+              >
+                hms-support@lkouniv.ac.in
+              </a>
+              .
+            </p>
           </div>
-        )}
+        </aside>
+
+        <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:p-10">
+          <header className="mb-6">
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              Reset password
+            </span>
+            <h1 className="mt-4 text-3xl font-semibold text-slate-900">
+              Recover account access
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              {step === 1 && "Enter the email linked to your HMS account."}
+              {step === 2 &&
+                "Confirm the one-time password sent to your email."}
+              {step === 3 && "Choose a secure password and confirm the change."}
+              {step === 4 && "All set! Sign in again with your new password."}
+            </p>
+          </header>
+
+          {renderStepIndicator()}
+
+          <div className="space-y-8">
+            {step === 1 && renderEmailStep()}
+            {step === 2 && renderOTPStep()}
+            {step === 3 && renderPasswordStep()}
+            {step === 4 && renderSuccessStep()}
+          </div>
+
+          {step !== 4 && (
+            <div className="mt-8 text-center text-sm">
+              <button
+                onClick={onBackToLogin}
+                className="font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Back to login
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 

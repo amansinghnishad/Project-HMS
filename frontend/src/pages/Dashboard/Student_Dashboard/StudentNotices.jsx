@@ -3,13 +3,12 @@ import {
   FaSpinner,
   FaExclamationTriangle,
   FaEye,
-  FaCheck,
   FaTimes,
   FaBell,
 } from "react-icons/fa";
-import { getReceivedNotices, markNoticeAsRead } from "../../../services/auth";
 import { toast } from "react-hot-toast";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
+import { noticeService } from "../../../services/api";
 
 const StudentNotices = () => {
   const [notices, setNotices] = useState([]);
@@ -47,7 +46,10 @@ const StudentNotices = () => {
   const loadNotices = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await getReceivedNotices(page, 20);
+      const response = await noticeService.fetchReceivedNotices({
+        page,
+        limit: 20,
+      });
       if (response?.success) {
         setNotices(response.data || []);
         setPagination(
@@ -73,7 +75,7 @@ const StudentNotices = () => {
     // Mark as read if not already read
     if (!notice.isRead) {
       try {
-        const response = await markNoticeAsRead(notice._id);
+        const response = await noticeService.markNoticeAsRead(notice._id);
         if (response?.success) {
           // Update the notice in the list
           setNotices((prev) =>

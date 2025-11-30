@@ -169,13 +169,10 @@ import {
   FaShip,
   FaHelicopter,
 } from "react-icons/fa";
-import {
-  sendNotice,
-  getSentNotices,
-  getAllAllottedStudents,
-} from "../../../services/auth";
 import { toast } from "react-hot-toast";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
+import { noticeService } from "../../../services/api/noticeService";
+import { allotmentService } from "../../../services/api/allotmentService";
 
 const StudentNotice = () => {
   // Enhanced form state
@@ -320,15 +317,13 @@ const StudentNotice = () => {
   const loadAllottedStudents = async () => {
     try {
       setStudentsLoading(true);
-      const response = await getAllAllottedStudents();
-      if (response?.success) {
-        setStudents(response.data || []);
-      } else {
-        toast.error("Failed to load students");
-      }
+      const response = await allotmentService.fetchAllottedStudents();
+      setStudents(response.data || []);
     } catch (error) {
       console.error("Error loading students:", error);
-      toast.error("Error loading students");
+      toast.error(
+        error.message || error?.payload?.message || "Error loading students"
+      );
     } finally {
       setStudentsLoading(false);
     }
@@ -336,15 +331,15 @@ const StudentNotice = () => {
   const loadSentNotices = async (page = 1, limit = 20) => {
     try {
       setHistoryLoading(true);
-      const response = await getSentNotices(page, limit);
-      if (response?.success) {
-        setSentNotices(response.data || []);
-      } else {
-        toast.error("Failed to load notice history");
-      }
+      const response = await noticeService.fetchSentNotices({ page, limit });
+      setSentNotices(response.data || []);
     } catch (error) {
       console.error("Error loading sent notices:", error);
-      toast.error("Error loading notice history");
+      toast.error(
+        error.message ||
+          error?.payload?.message ||
+          "Error loading notice history"
+      );
     } finally {
       setHistoryLoading(false);
     }
@@ -596,24 +591,22 @@ const StudentNotice = () => {
       console.log("Sending notice with data:", formData);
       console.log("Current user token:", localStorage.getItem("token"));
 
-      const response = await sendNotice(formData);
+      const response = await noticeService.sendNotice(formData);
 
       console.log("Notice response:", response);
 
-      if (response?.success) {
-        toast.success("Notice sent successfully!");
-        resetForm();
-        // Refresh sent notices if history is being shown
-        if (showHistory) {
-          loadSentNotices();
-        }
-      } else {
-        console.error("Notice sending failed:", response);
-        toast.error(response?.message || "Failed to send notice");
+      toast.success("Notice sent successfully!");
+      resetForm();
+      if (showHistory) {
+        loadSentNotices();
       }
     } catch (error) {
       console.error("Error sending notice:", error);
-      toast.error("An error occurred while sending the notice");
+      toast.error(
+        error.message ||
+          error?.payload?.message ||
+          "An error occurred while sending the notice"
+      );
     } finally {
       setSubmitting(false);
     }

@@ -15,8 +15,12 @@ import {
   FaSpinner,
   FaInfoCircle,
 } from "react-icons/fa";
-import { apiConnector } from "../../../services/apiconnector";
 import NoticeViewer from "../../../components/NoticeViewer/NoticeViewer";
+import {
+  maintenanceService,
+  leaveService,
+  noticeService,
+} from "../../../services/api";
 
 const StudentDashboard = () => {
   const [studentInfo, setStudentInfo] = useState(null);
@@ -46,23 +50,16 @@ const StudentDashboard = () => {
         }
 
         if (token) {
-          const headers = { Authorization: `Bearer ${token}` };
-
-          // Fetch student's requests
           const [maintenanceRes, leaveRes, noticesRes] = await Promise.all([
-            apiConnector("GET", "/service-requests/my", null, headers).catch(
-              () => ({ data: [] })
-            ),
-            apiConnector("GET", "/leave/", null, headers).catch(() => ({
-              data: [],
-            })),
-            apiConnector("GET", "/notices/received", null, headers).catch(
-              () => ({ data: [] })
-            ),
+            maintenanceService.fetchUserRequests().catch(() => null),
+            leaveService.fetchUserLeaveRequests().catch(() => null),
+            noticeService
+              .fetchReceivedNotices({ page: 1, limit: 20 })
+              .catch(() => null),
           ]);
-          const maintenance = maintenanceRes.data || [];
-          const leave = leaveRes.data || [];
-          const notices = noticesRes.data?.data || [];
+          const maintenance = maintenanceRes?.data || [];
+          const leave = leaveRes?.data || [];
+          const notices = noticesRes?.data || [];
 
           // Combine and sort recent requests
           const allRequests = [

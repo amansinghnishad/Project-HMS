@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { getPublishedPublicNotices } from "../../services/auth";
 import NoticeViewer from "../NoticeViewer/NoticeViewer";
+import { publicNoticeService } from "../../services/api/publicNoticeService";
 
 const NoticeBoard = () => {
   const [notices, setNotices] = useState([]);
@@ -29,15 +29,13 @@ const NoticeBoard = () => {
   const fetchPublishedNotices = async () => {
     console.log("NoticeBoard: Fetching published notices...");
     try {
-      const result = await getPublishedPublicNotices({
+      const result = await publicNoticeService.fetchPublishedNotices({
         limit: showAll ? 20 : 5,
       });
       console.log("NoticeBoard: API result:", result);
-      if (result.success) {
+      if (result?.notices) {
         console.log("NoticeBoard: Setting notices:", result.notices);
         setNotices(result.notices);
-      } else {
-        console.log("NoticeBoard: API call unsuccessful:", result);
       }
     } catch (error) {
       console.error("NoticeBoard: Error fetching notices:", error);

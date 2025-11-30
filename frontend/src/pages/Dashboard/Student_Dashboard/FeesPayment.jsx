@@ -1,13 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useSelector } from "react-redux"; // Assuming you use Redux for token/user state
 import { toast } from "react-hot-toast";
-import {
-  createHostelFeeOrder,
-  createMessFeeOrder,
-  verifyPayment,
-  getMyPaymentHistory,
-} from "../../../services/auth"; // Corrected path
-import { apiConnector } from "../../../services/apiconnector"; // For Razorpay key if not in order response
+import { paymentService } from "../../../services/api";
 
 const FeesPayment = () => {
   const [messSemester, setMessSemester] = useState("odd"); // 'odd' or 'even'
@@ -41,7 +34,7 @@ const FeesPayment = () => {
     }
     setLoadingHistory(true);
     try {
-      const response = await getMyPaymentHistory(token);
+      const response = await paymentService.fetchMyPaymentHistory();
       if (response && response.success) {
         setPaymentHistory(response.data || []);
       } else {
@@ -77,7 +70,7 @@ const FeesPayment = () => {
     let orderResponse;
     if (feeType === "hostel") {
       setLoadingHostelPay(true);
-      orderResponse = await createHostelFeeOrder(token);
+      orderResponse = await paymentService.createHostelFeeOrder();
       setLoadingHostelPay(false);
     } else if (feeType === "mess") {
       if (!semester) {
@@ -85,7 +78,7 @@ const FeesPayment = () => {
         return;
       }
       setLoadingMessPay(true);
-      orderResponse = await createMessFeeOrder({ semester }, token);
+      orderResponse = await paymentService.createMessFeeOrder({ semester });
       setLoadingMessPay(false);
     }
 
@@ -113,7 +106,9 @@ const FeesPayment = () => {
           razorpay_payment_id: response.razorpay_payment_id,
           razorpay_signature: response.razorpay_signature,
         };
-        const verificationResult = await verifyPayment(verificationData, token);
+        const verificationResult = await paymentService.verifyPayment(
+          verificationData
+        );
         if (verificationResult && verificationResult.success) {
           toast.success(verificationResult.message || "Payment successful!");
           fetchPaymentHistory(); // Refresh history

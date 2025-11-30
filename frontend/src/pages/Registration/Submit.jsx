@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { apiConnector } from "../../services/apiconnector";
 import { useNavigate } from "react-router-dom";
+import { authService } from "../../services/api/authService";
 
 const Submit = ({ formData }) => {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
@@ -14,70 +14,62 @@ const Submit = ({ formData }) => {
       "You are about to submit your application. Please confirm all details are correct."
     );
     if (!agreeToTerms) {
-      setError("Please agree to the terms and conditions before submitting.");
+      setError("Please agree to the terms before submitting.");
       return;
     }
+
     setIsSubmitting(true);
     setError(null);
     try {
-      // Send all profile details to backend (not user creation)
-      const response = await apiConnector(
-        "POST",
-        "/auth/registered-student-profile",
-        {
-          email: formData.email,
-          studentName: formData.studentName,
-          fatherName: formData.fatherName,
-          motherName: formData.motherName,
-          gender: formData.gender,
-          department: formData.courseName,
-          courseName: formData.courseName,
-          semester: formData.semester,
-          rollno: formData.rollno,
-          sgpaOdd: formData.sgpaOdd,
-          sgpaEven: formData.sgpaEven,
-          roomPreference: formData.roomPreference,
-          admissionYear: new Date().getFullYear(),
-          contactNumber: formData.mobile,
-          password: formData.password, // Ensure password is sent for user creation
-        }
-      );
-      if (response.data.success) {
-        alert("Application submitted successfully!");
-        setSuccess(true);
-        setTimeout(() => {
-          navigate("/login/student-login");
-        }, 2000);
-      } else if (
-        response.data.message &&
-        response.data.message.includes("already registered")
-      ) {
+      await authService.registerStudentProfile({
+        email: formData.email,
+        studentName: formData.studentName,
+        fatherName: formData.fatherName,
+        motherName: formData.motherName,
+        gender: formData.gender,
+        department: formData.courseName,
+        courseName: formData.courseName,
+        semester: formData.semester,
+        rollno: formData.rollno,
+        sgpaOdd: formData.sgpaOdd,
+        sgpaEven: formData.sgpaEven,
+        roomPreference: formData.roomPreference,
+        admissionYear: new Date().getFullYear(),
+        contactNumber: formData.mobile,
+        password: formData.password,
+      });
+
+      alert("Application submitted successfully!");
+      setSuccess(true);
+      setTimeout(() => {
+        navigate("/login/student-login");
+      }, 2000);
+    } catch (err) {
+      const message =
+        err?.payload?.message ||
+        err?.message ||
+        "Registration failed. Please try again.";
+
+      if (message.toLowerCase().includes("already registered")) {
         setError(
           "A user with this email already exists. Please login or use a different email."
         );
-      } else if (response.data.message) {
-        setError(response.data.message);
       } else {
-        setError("Registration failed. Please try again.");
-      }
-    } catch (err) {
-      if (err.response && err.response.data && err.response.data.message) {
-        setError("Registration failed: " + err.response.data.message);
-      } else {
-        setError("Registration failed. Please try again.");
+        setError(message);
       }
     } finally {
       setIsSubmitting(false);
     }
   };
+
   return (
-    <div className="space-y-4 sm:space-y-6 text-center animate-fadeIn px-2 sm:px-0">
+    <div className="space-y-6 text-center">
       {!success ? (
-        <>
-          <div className="text-green-600 text-4xl sm:text-6xl mb-3 sm:mb-4">
+        <div className="space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-sky-100 text-sky-600">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-16 w-16 sm:h-20 sm:w-20 md:h-24 md:w-24 mx-auto"
+              className="h-8 w-8"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -85,71 +77,72 @@ const Submit = ({ formData }) => {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
+                strokeWidth={1.6}
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
           </div>
-          <h2 className="text-xl sm:text-2xl font-semibold text-gray-800">
-            Ready to Submit
-          </h2>
-          <p className="text-sm sm:text-base text-gray-600 max-w-sm sm:max-w-md mx-auto leading-relaxed">
-            By clicking the submit button, you confirm that all the information
-            provided is correct and agree to the terms and conditions.
-          </p>
-          <div className="mt-4 sm:mt-6 bg-gray-50 p-3 sm:p-4 rounded-lg inline-block max-w-full">
-            <label className="flex items-start sm:items-center space-x-2 sm:space-x-3 cursor-pointer text-left">
-              <input
-                type="checkbox"
-                checked={agreeToTerms}
-                onChange={() => setAgreeToTerms(!agreeToTerms)}
-                className="form-checkbox h-4 w-4 sm:h-5 sm:w-5 text-indigo-600 rounded focus:ring-indigo-500 mt-0.5 sm:mt-0 flex-shrink-0 touch-manipulation"
-              />
-              <span className="text-xs sm:text-sm text-gray-700 leading-relaxed">
-                I agree to the{" "}
-                <a
-                  href="#"
-                  className="text-indigo-600 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded"
-                >
-                  Terms of Service
-                </a>{" "}
-                and{" "}
-                <a
-                  href="#"
-                  className="text-indigo-600 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded"
-                >
-                  Privacy Policy
-                </a>
-              </span>
-            </label>
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
+              Ready to Submit
+            </h2>
+            <p className="mx-auto max-w-md text-sm text-slate-500">
+              By submitting, you confirm that all details are accurate and agree
+              to the programme terms and privacy policy.
+            </p>
           </div>
+
+          <label className="mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={agreeToTerms}
+              onChange={() => setAgreeToTerms((prev) => !prev)}
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+            />
+            <span>
+              I agree to the
+              <a
+                href="#"
+                className="mx-1 text-sky-600 transition-colors hover:text-sky-700"
+              >
+                Terms of Service
+              </a>
+              and
+              <a
+                href="#"
+                className="ml-1 text-sky-600 transition-colors hover:text-sky-700"
+              >
+                Privacy Policy
+              </a>
+              .
+            </span>
+          </label>
           {error && (
-            <div className="text-red-500 text-xs sm:text-sm bg-red-50 p-3 rounded-lg border border-red-100 mx-auto max-w-md">
+            <div className="mx-auto max-w-md rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </div>
           )}
           <button
             onClick={handleSubmit}
             disabled={isSubmitting || !agreeToTerms}
-            className={`mt-4 w-full sm:w-auto px-6 sm:px-8 py-2 sm:py-3 ${
+            className={`inline-flex w-full items-center justify-center rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 sm:w-auto ${
               isSubmitting || !agreeToTerms
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-green-600 hover:bg-green-700"
-            } text-white font-medium rounded-lg transition-all duration-300 transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-green-500 min-h-[44px] touch-manipulation text-sm sm:text-base`}
+                ? "cursor-not-allowed bg-slate-300"
+                : "bg-sky-600 hover:bg-sky-700"
+            }`}
           >
             {isSubmitting ? "Submitting..." : "Submit Application"}
           </button>
-          <div className="text-xs text-gray-500 mt-3 sm:mt-4 max-w-sm mx-auto">
-            You will receive a confirmation email once your application is
-            processed.
-          </div>
-        </>
+          <p className="text-xs text-slate-400">
+            A confirmation email will be sent to your registered address.
+          </p>
+        </div>
       ) : (
-        <div className="animate-fadeIn">
-          <div className="text-green-600 text-4xl sm:text-6xl mb-3 sm:mb-4">
+        <div className="space-y-5">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-16 w-16 sm:h-20 sm:w-20 md:h-24 md:w-24 mx-auto"
+              className="h-8 w-8"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -157,16 +150,17 @@ const Submit = ({ formData }) => {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
+                strokeWidth={1.6}
                 d="M5 13l4 4L19 7"
               />
             </svg>
           </div>
-          <h2 className="text-xl sm:text-2xl font-semibold text-green-700">
-            Registration Successful!
+          <h2 className="text-lg font-semibold text-emerald-700 sm:text-xl">
+            Registration Successful
           </h2>
-          <p className="text-sm sm:text-base text-gray-600 max-w-sm sm:max-w-md mx-auto mt-3 sm:mt-4 leading-relaxed">
-            Your application has been submitted successfully.
+          <p className="mx-auto max-w-md text-sm text-slate-500">
+            Your application has been submitted. You will be redirected to the
+            login page shortly.
           </p>
         </div>
       )}

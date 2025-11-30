@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import { apiConnector } from "../../../services/apiconnector";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   FaCalendarAlt,
   FaPaperPlane,
@@ -12,6 +11,7 @@ import {
   FaExclamationTriangle,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
+import { leaveService } from "../../../services/api";
 
 const LeaveApply = () => {
   const [formData, setFormData] = useState({
@@ -28,26 +28,24 @@ const LeaveApply = () => {
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
 
   // Fetch leave history
-  useEffect(() => {
-    const fetchLeaveHistory = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem("token");
-        const response = await apiConnector("GET", "/leave", null, {
-          Authorization: `Bearer ${token}`,
-        });
-        if (response.data.success) {
-          setLeaveHistory(response.data.data || []);
-        }
-      } catch (error) {
-        console.error("Error fetching leave history:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLeaveHistory();
+  const fetchLeaveHistory = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await leaveService.fetchUserLeaveRequests();
+      setLeaveHistory(response?.data || []);
+    } catch (error) {
+      console.error("Error fetching leave history:", error);
+      toast.error(
+        error?.message || "Failed to fetch leave history. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchLeaveHistory();
+  }, [fetchLeaveHistory]);
 
   const leaveTypes = [
     {
@@ -124,11 +122,11 @@ const LeaveApply = () => {
     }
 
     try {
-      const response = await apiConnector("POST", "/leave/submit", formData);
+      const response = await leaveService.submitLeaveRequest(formData);
 
-      if (response.data.success) {
+      if (response?.success) {
         toast.success(
-          response.data.message || "Leave application submitted successfully!",
+          response.message || "Leave application submitted successfully!",
           {
             id: toastId,
           }
@@ -145,36 +143,18 @@ const LeaveApply = () => {
         });
 
         // Refresh history without page reload
-        const fetchLeaveHistory = async () => {
-          try {
-            const token = localStorage.getItem("token");
-            const historyResponse = await apiConnector("GET", "/leave", null, {
-              Authorization: `Bearer ${token}`,
-            });
-            if (historyResponse.data.success) {
-              setLeaveHistory(historyResponse.data.data || []);
-            }
-          } catch (error) {
-            console.error("Error fetching leave history:", error);
-          }
-        };
-
         await fetchLeaveHistory();
 
         // Auto switch to history tab to show the new request
         setTimeout(() => {
           setShowHistory(true);
         }, 1000);
-      } else {
-        throw new Error(
-          response.data.error || "Failed to submit leave application"
-        );
       }
     } catch (error) {
       console.error("Error submitting leave:", error);
       toast.error(
         error.response?.data?.error ||
-          error.message ||
+          error?.message ||
           "Failed to submit leave application",
         { id: toastId }
       );

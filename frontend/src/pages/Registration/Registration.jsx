@@ -5,10 +5,10 @@ import EmailMobileVerification from "./EmailMobileVerification";
 import HostelSelection from "./HostelSelection";
 import Preview from "./Preview";
 import Submit from "./Submit";
-import { apiConnector } from "../../services/apiconnector";
+import { authService } from "../../services/api/authService";
 
 import RegHeader from "./RegHeader";
-import RegFooter from "../../components/Footer/RegFooter";
+import RegFooter from "./RegFooter";
 
 const MultiStepForm = () => {
   const [category, setCategory] = useState("");
@@ -112,26 +112,20 @@ const MultiStepForm = () => {
       if (step === 2) {
         // On EmailMobileVerification step, do email verification
         try {
-          const response = await apiConnector(
-            "POST",
-            "/auth/email-verification",
-            {
-              email: formData.email,
-              password: formData.password,
-              confirmPassword: formData.confirmPassword,
-              otp: formData.otp,
-              mobile: formData.mobile,
-              studentName: formData.studentName || formData.name || "",
-              gender: formData.gender || "",
-            }
-          );
-          if (response.data.success) {
-            setStep((prevStep) => Math.min(prevStep + 1, 5));
-          } else {
-            alert(response.data.message || "Registration failed.");
-          }
+          await authService.emailVerification({
+            email: formData.email,
+            password: formData.password,
+            confirmPassword: formData.confirmPassword,
+            otp: formData.otp,
+            mobile: formData.mobile,
+            studentName: formData.studentName || formData.name || "",
+            gender: formData.gender || "",
+          });
+          setStep((prevStep) => Math.min(prevStep + 1, 5));
         } catch (error) {
-          alert(error.response?.data?.message || "Registration failed.");
+          alert(
+            error.message || error?.payload?.message || "Registration failed."
+          );
         }
       } else {
         setStep((prevStep) => Math.min(prevStep + 1, 5));
@@ -145,41 +139,21 @@ const MultiStepForm = () => {
     setStep((prevStep) => Math.max(prevStep - 1, 1));
   };
 
+  const primaryButtonClass =
+    "inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2";
+  const secondaryButtonClass =
+    "inline-flex items-center justify-center rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2 hover:border-slate-400 hover:bg-slate-50";
+
   return (
     <>
       <RegHeader />
-      <div className="bg-stone-200 py-2 px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center p-5">
-        {!category && (
-          <div className="mb-8 w-full max-w-md bg-white p-8 rounded-2xl shadow-2xl transform transition-all duration-500 hover:scale-[1.01]">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">
-              Hostel Application
-            </h2>
-            <p className="text-gray-500 text-center mb-6">
-              Please select your application category
-            </p>
-
-            <label className="block text-gray-700 text-lg font-semibold mb-2">
-              Select Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="block w-full px-4 py-3 text-gray-700 bg-white border-2 border-indigo-300 rounded-xl focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 transition ease-in-out duration-300"
-            >
-              <option value="">-- Select Category --</option>
-              <option value="new">🆕 New Allotment</option>
-              <option value="reallotment">🏠 Re-allotment (Old)</option>
-            </select>
-          </div>
-        )}
-
-        {/* Conditionally Render Form if Re-allotment selected */}
-        {category === "reallotment" && (
-          <div className="max-w-2xl w-full bg-white rounded-xl shadow-2xl transform transition-all duration-300 hover:scale-[1.01]">
-            <div className="p-8">
+      <main className="bg-slate-50 px-4 py-10 sm:px-6 sm:py-14">
+        <section className="mx-auto w-full max-w-3xl">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="px-6 py-8 sm:px-10 sm:py-10">
               <StepIndicator currentStep={step} />
 
-              <div className="">
+              <div className="space-y-8">
                 {step === 1 && (
                   <PersonalInformation
                     formData={formData}
@@ -204,41 +178,32 @@ const MultiStepForm = () => {
                 {step === 5 && <Submit formData={formData} />}
               </div>
 
-              <div className="flex justify-between">
-                {step > 1 && (
+              {step < 5 && (
+                <div className="mt-10 flex items-center justify-between gap-4">
+                  {step > 1 ? (
+                    <button className={secondaryButtonClass} onClick={prevStep}>
+                      Previous
+                    </button>
+                  ) : (
+                    <span />
+                  )}
                   <button
-                    className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-gray-400 transform hover:-translate-y-1"
-                    onClick={prevStep}
-                  >
-                    Previous
-                  </button>
-                )}
-                {step < 5 && (
-                  <button
-                    className={`px-6 py-2 rounded-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 ml-auto transform hover:-translate-y-1 ${
+                    className={`${primaryButtonClass} ${
                       stepCompletion[step]
-                        ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-                        : "bg-gray-400 cursor-not-allowed text-white"
+                        ? "bg-sky-600 hover:bg-sky-700"
+                        : "cursor-not-allowed bg-slate-300"
                     }`}
                     onClick={nextStep}
                     disabled={!stepCompletion[step]}
                   >
                     Next
                   </button>
-                )}
-                {/* No submit button here for step 5; Submit.jsx handles it */}
-              </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        {/* If other category selected or none */}
-        {category && category !== "reallotment" && (
-          <div className="text-red-600 text-lg font-semibold mt-6">
-            Hostel Registration is available only for <u>Re-allotment (Old)</u>.
-          </div>
-        )}
-      </div>
+        </section>
+      </main>
       <RegFooter />
     </>
   );

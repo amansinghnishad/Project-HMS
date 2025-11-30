@@ -1,48 +1,44 @@
 import React from "react";
 
-const StepIndicator = ({ currentStep }) => {
-  return (
-    <div className="flex items-center justify-between mb-6 sm:mb-8 relative px-2 sm:px-0">
-      {/* Progress bar */}
-      <div className="absolute h-0.5 sm:h-1 bg-gray-200 top-4 sm:top-5 left-4 sm:left-0 right-4 sm:right-0 z-0">
-        <div
-          className="h-full bg-indigo-600 transition-all duration-300"
-          style={{ width: `${(currentStep - 1) * 25}%` }}
-        ></div>
-      </div>
+const steps = ["Personal", "Verification", "Hostel", "Preview", "Submit"];
 
-      {/* Step indicators */}
-      {[1, 2, 3, 4, 5].map((stepNumber) => (
-        <div key={stepNumber} className="flex flex-col items-center z-10">
-          <div
-            className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-300 text-xs sm:text-sm font-medium
-              ${
-                currentStep >= stepNumber
-                  ? "bg-indigo-600 text-white shadow-md sm:shadow-lg"
-                  : "bg-gray-200 text-gray-600"
-              }`}
-          >
-            {stepNumber}
-          </div>
-          <div
-            className={`text-xs sm:text-sm mt-1 sm:mt-2 font-medium text-center max-w-[60px] sm:max-w-none leading-tight ${
-              currentStep >= stepNumber ? "text-indigo-600" : "text-gray-500"
-            }`}
-          >
-            {stepNumber === 1 && (
-              <span className="hidden sm:inline">Personal Info</span>
-            )}
-            {stepNumber === 1 && <span className="sm:hidden">Personal</span>}
-            {stepNumber === 2 && (
-              <span className="hidden sm:inline">Verification</span>
-            )}
-            {stepNumber === 2 && <span className="sm:hidden">Verify</span>}
-            {stepNumber === 3 && "Hostel"}
-            {stepNumber === 4 && "Preview"}
-            {stepNumber === 5 && "Submit"}
-          </div>
-        </div>
-      ))}
+const StepIndicator = ({ currentStep }) => {
+  const progress = ((currentStep - 1) / (steps.length - 1)) * 100;
+
+  return (
+    <div className="relative mb-8">
+      <div className="absolute left-2 right-2 top-[22px] h-px bg-slate-200 sm:left-0 sm:right-0">
+        <div
+          className="h-full rounded-full bg-sky-500 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <ol className="relative z-10 flex items-start justify-between gap-2 sm:gap-4">
+        {steps.map((label, index) => {
+          const stepNumber = index + 1;
+          const isCompleted = currentStep >= stepNumber;
+          return (
+            <li key={label} className="flex flex-col items-center text-center">
+              <span
+                className={`flex h-10 w-10 items-center justify-center rounded-full border text-sm font-medium transition-colors duration-300 ${
+                  isCompleted
+                    ? "border-sky-500 bg-sky-500 text-white"
+                    : "border-slate-300 bg-white text-slate-500"
+                }`}
+              >
+                {stepNumber}
+              </span>
+              <span
+                className={`mt-2 text-xs font-medium uppercase tracking-wide ${
+                  isCompleted ? "text-slate-900" : "text-slate-500"
+                }`}
+              >
+                {label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 };

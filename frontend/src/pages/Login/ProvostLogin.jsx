@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import LoginComp from "../../components/LoginComp/LoginComp";
 import Navbar from "../../components/Navbar/Navbar";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
-import { toast } from "react-hot-toast"; // Import toast
-import { provostLogin } from "../../services/auth"; // Import the new provostLogin service
+import { useNavigate } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import { authService } from "../../services/api/authService";
+import Footer from "../../components/Footer/Footer";
 
 const ProvostLogin = () => {
   const navigate = useNavigate(); // Initialize useNavigate
@@ -13,30 +14,27 @@ const ProvostLogin = () => {
     setIsLoading(true);
     const toastId = toast.loading("Logging in...");
     try {
-      const response = await provostLogin(credentials); // Call the service
+      const response = await authService.loginProvost(credentials);
       console.log("Provost Login API Response:", response);
 
-      if (response && response.data && response.data.success) {
-        // Store token and user info in localStorage
-        localStorage.setItem("token", response.data.token);
-        localStorage.setItem(
-          "user",
-          JSON.stringify({ role: response.data.role, email: credentials.email })
-        ); // Store basic user info
+      // Store token and user info in localStorage
+      localStorage.setItem("token", response.token);
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          role: response.role,
+          email: credentials.email,
+          name: response.user?.name,
+        })
+      );
 
-        toast.success(response.data.message || "Login successful!");
-        // Redirect to the provost dashboard
-        navigate("/provost-login");
-      } else {
-        toast.error(
-          response?.data?.message ||
-            "Login failed. Please check your credentials."
-        );
-      }
+      toast.success(response.message || "Login successful!");
+      navigate("/provost-login");
     } catch (error) {
       console.error("Provost Login Error:", error);
       toast.error(
-        error.response?.data?.message ||
+        error.message ||
+          error?.payload?.message ||
           "An error occurred during login. Please try again."
       );
     } finally {
@@ -45,11 +43,17 @@ const ProvostLogin = () => {
     toast.dismiss(toastId);
   };
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <Navbar />
-      {/* Pass the API endpoint path if your LoginComp expects it, otherwise it's not needed if handleSubmit handles the API call */}
-      <LoginComp onSubmit={handleSubmit} isLoading={isLoading} />
-    </div>
+      <LoginComp
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        heading="Provost workspace"
+        accentTitle="Operational oversight"
+        description="Authorize entries, monitor activity logs, and make informed hostel decisions without leaving the dashboard."
+      />
+      <Footer />
+    </>
   );
 };
 

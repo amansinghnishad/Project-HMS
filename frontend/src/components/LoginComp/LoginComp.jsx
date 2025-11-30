@@ -1,17 +1,38 @@
-import React, { useState } from "react";
-import { FaEnvelope, FaLock, FaSpinner } from "react-icons/fa";
+import React, { useMemo, useState } from "react";
+import {
+  FaEnvelope,
+  FaLock,
+  FaSpinner,
+  FaEye,
+  FaEyeSlash,
+} from "react-icons/fa";
 import ForgotPassword from "./ForgotPassword";
 
-const LoginComp = ({ onSubmit, isLoading }) => {
+const LoginComp = ({
+  onSubmit,
+  isLoading,
+  heading = "Welcome back",
+  accentTitle = "Hostel Management Suite",
+  description = "Sign in to manage allotments, requests, and campus life from a single, secure dashboard.",
+}) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formError, setFormError] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  const emailPlaceholder = useMemo(() => "Enter your institutional email", []);
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("Email:", email, "Password:", password);
-    // Add login logic here (e.g., API call)
+    if (!email || !password) {
+      setFormError("Email and password are required.");
+      return;
+    }
+    setFormError("");
     if (onSubmit) {
-      onSubmit({ email, password });
+      onSubmit({ email, password, rememberMe });
     }
   };
 
@@ -24,77 +45,153 @@ const LoginComp = ({ onSubmit, isLoading }) => {
     setShowForgotPassword(false);
   };
 
-  // Show Forgot Password component if requested
   if (showForgotPassword) {
     return <ForgotPassword onBackToLogin={handleBackToLogin} />;
   }
+
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 sm:py-6">
-      <div className="bg-white p-4 sm:p-6 md:p-8 lg:p-10 rounded-lg sm:rounded-xl lg:rounded-2xl shadow-lg sm:shadow-xl lg:shadow-2xl w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl">
-        <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-center mb-4 sm:mb-6 lg:mb-8 text-gray-800 leading-tight">
-          Login
-        </h2>
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4 sm:space-y-5 lg:space-y-6"
-        >
-          <div className="flex items-center border border-gray-300 rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 hover:shadow-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all duration-200">
-            <FaEnvelope className="text-gray-500 mr-2 sm:mr-3 text-sm sm:text-base flex-shrink-0" />
-            <input
-              type="email"
-              id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className="w-full outline-none text-sm sm:text-base lg:text-lg placeholder-gray-400 focus:placeholder-gray-300"
-              required
-            />
+    <section className="bg-gray-50">
+      <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center gap-12 px-6 py-16 md:px-10 lg:flex-row lg:items-center">
+        <header className="w-full max-w-xl text-slate-800">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">
+            {accentTitle}
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+            {heading}
+          </h1>
+          <p className="mt-4 text-base text-slate-600">{description}</p>
+          <div className="mt-8 grid gap-4 text-sm text-slate-600 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-semibold text-slate-800">Secure access</p>
+              <p className="mt-2 leading-relaxed">
+                Multi-role authentication keeps every stakeholder&apos;s data
+                aligned with university policy.
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-semibold text-slate-800">
+                Integrated workflow
+              </p>
+              <p className="mt-2 leading-relaxed">
+                Stay on top of allotments, requests, and updates without leaving
+                the dashboard.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center border border-gray-300 rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 hover:shadow-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all duration-200">
-            <FaLock className="text-gray-500 mr-2 sm:mr-3 text-sm sm:text-base flex-shrink-0" />
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full outline-none text-sm sm:text-base lg:text-lg placeholder-gray-400 focus:placeholder-gray-300"
-              required
-            />
+        </header>
+
+        <div className="w-full max-w-md">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="mb-6 text-center">
+              <h2 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
+                Sign in
+              </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Use your registered credentials to continue.
+              </p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <label className="block text-left">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Institutional email
+                </span>
+                <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+                  <FaEnvelope className="text-base text-blue-500" />
+                  <input
+                    type="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={emailPlaceholder}
+                    className="w-full border-none bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 sm:text-base"
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+              </label>
+
+              <label className="block text-left">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Password
+                </span>
+                <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition focus-within:border-blue-500">
+                  <FaLock className="text-base text-blue-500" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="w-full border-none bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 sm:text-base"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="text-slate-400 transition hover:text-slate-600"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showPassword ? <FaEyeSlash /> : <FaEye />}
+                  </button>
+                </div>
+              </label>
+
+              <div className="flex items-center justify-between text-sm">
+                <label className="flex items-center gap-2 text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Remember me
+                </label>
+                <button
+                  onClick={handleForgotPasswordClick}
+                  className="font-semibold text-blue-600 transition hover:text-blue-700"
+                >
+                  Forgot password?
+                </button>
+              </div>
+
+              {formError && (
+                <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">
+                  {formError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60 sm:text-base"
+              >
+                {isLoading ? (
+                  <>
+                    <FaSpinner className="animate-spin" />
+                    <span>Logging in…</span>
+                  </>
+                ) : (
+                  "Sign in"
+                )}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center text-sm text-slate-500">
+              <span>New to HMS?</span>{" "}
+              <a
+                href="/register"
+                className="font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Create an account
+              </a>
+            </div>
           </div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-blue-600 text-white py-2.5 sm:py-3 lg:py-4 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 text-sm sm:text-base lg:text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-h-[44px] sm:min-h-[48px] transform hover:scale-105 active:scale-95"
-          >
-            {isLoading ? (
-              <>
-                <FaSpinner className="animate-spin mr-2 text-sm sm:text-base" />
-                <span>Logging in...</span>
-              </>
-            ) : (
-              "Login"
-            )}
-          </button>
-          <div className="text-center mt-3 sm:mt-4">
-            <button
-              onClick={handleForgotPasswordClick}
-              className="text-blue-600 hover:text-blue-800 hover:underline text-xs sm:text-sm lg:text-base transition-colors duration-200 p-1"
-            >
-              Forgot Password?
-            </button>
-          </div>
-          <div className="text-center mt-2 sm:mt-3">
-            <a
-              href="/register"
-              className="text-blue-600 hover:text-blue-800 hover:underline text-xs sm:text-sm lg:text-base transition-colors duration-200 p-1"
-            >
-              Don't have an account? Register
-            </a>
-          </div>
-        </form>
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 
