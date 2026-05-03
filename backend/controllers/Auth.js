@@ -204,16 +204,17 @@ exports.checkHostelEligibility = async (req, res) => {
 
 // ************************************************************************************************
 
-// Validates OTP before allowing profile completion.
+// Validates OTP before allowing profile completion (OTP optional).
 exports.emailVerification = async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
     const { password, confirmPassword, otp } = req.body;
 
-    if (!email || !password || !confirmPassword || !otp) {
+    // Email, password, and confirmPassword are required; OTP is optional
+    if (!email || !password || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: "Required fields are missing: email, password, confirmPassword, and otp are required",
+        message: "Required fields are missing: email, password, and confirmPassword are required",
       });
     }
 
@@ -224,26 +225,28 @@ exports.emailVerification = async (req, res) => {
       });
     }
 
-    const latestOtp = await fetchLatestOtp(email);
-    if (!isOtpValid(latestOtp, otp)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired OTP. Please request a new one.",
-      });
+    // Only validate OTP if it's provided (not empty)
+    if (otp) {
+      const latestOtp = await fetchLatestOtp(email);
+      if (!isOtpValid(latestOtp, otp)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired OTP. Please request a new one.",
+        });
+      }
+      await OTP.deleteMany({ email });
     }
-
-    await OTP.deleteMany({ email });
 
     return res.status(200).json({
       success: true,
-      message: "OTP verified successfully. Please complete your profile details.",
+      message: "Email verified successfully. Please complete your profile details.",
     });
 
   } catch (error) {
     console.error("Email Verification Error:", error);
     return res.status(500).json({
       success: false,
-      message: "An error occurred during OTP verification. Please try again later.",
+      message: "An error occurred during verification. Please try again later.",
       error: error.message,
     });
   }

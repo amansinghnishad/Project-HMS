@@ -93,13 +93,16 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
   //   }
   // };
 
-  // Auto-verify OTP (bypassing OTP verification)
+  // Auto-verify (bypassing OTP verification)
   React.useEffect(() => {
     if (formData.email && formData.mobile && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword) {
       setIsOtpVerifiedLocal(true);
       onOtpVerified(true);
+    } else {
+      setIsOtpVerifiedLocal(false);
+      onOtpVerified(false);
     }
-  }, [formData.email, formData.mobile, formData.password, formData.confirmPassword, onOtpVerified, formData]);
+  }, [formData.email, formData.mobile, formData.password, formData.confirmPassword, onOtpVerified]);
 
   return (
     <div className="space-y-8">
