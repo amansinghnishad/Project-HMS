@@ -38,60 +38,68 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
     }
   };
 
-  const sendOtp = async () => {
-    if (!formData.email) {
-      alert("Please enter your email address before sending OTP.");
-      return;
-    }
-    setIsCheckingEmail(true);
-    try {
-      const emailCheck = await checkEmailExists();
-      if (emailCheck?.exists) {
-        setEmailExists(true);
-        alert("This email is already registered. Please login instead.");
-        return;
-      }
-      const response = await authService.sendOtp(formData.email);
-      setOtpSent(true);
-      alert("OTP sent to your email.");
-      if (response.expiresAt) {
-        localStorage.setItem("otpExpiresAt", response.expiresAt);
-      }
-    } catch (error) {
-      alert(error.message || error?.payload?.message || "Failed to send OTP");
-    } finally {
-      setIsCheckingEmail(false);
-    }
-  };
+  // const sendOtp = async () => {
+  //   if (!formData.email) {
+  //     alert("Please enter your email address before sending OTP.");
+  //     return;
+  //   }
+  //   setIsCheckingEmail(true);
+  //   try {
+  //     const emailCheck = await checkEmailExists();
+  //     if (emailCheck?.exists) {
+  //       setEmailExists(true);
+  //       alert("This email is already registered. Please login instead.");
+  //       return;
+  //     }
+  //     const response = await authService.sendOtp(formData.email);
+  //     setOtpSent(true);
+  //     alert("OTP sent to your email.");
+  //     if (response.expiresAt) {
+  //       localStorage.setItem("otpExpiresAt", response.expiresAt);
+  //     }
+  //   } catch (error) {
+  //     alert(error.message || error?.payload?.message || "Failed to send OTP");
+  //   } finally {
+  //     setIsCheckingEmail(false);
+  //   }
+  // };
 
-  const verifyOtp = async () => {
-    if (!formData.otp) {
-      alert("Please enter the OTP to verify.");
-      return;
+  // const verifyOtp = async () => {
+  //   if (!formData.otp) {
+  //     alert("Please enter the OTP to verify.");
+  //     return;
+  //   }
+  //   setIsVerifying(true);
+  //   try {
+  //     const verifyRes = await authService.verifyOtp({
+  //       email: formData.email,
+  //       otp: formData.otp,
+  //     });
+  //     if (verifyRes.success) {
+  //       alert("OTP verified successfully!");
+  //       setIsOtpVerifiedLocal(true);
+  //       onOtpVerified(true);
+  //     } else {
+  //       alert("Invalid OTP. Please try again.");
+  //       setIsOtpVerifiedLocal(false);
+  //       onOtpVerified(false);
+  //     }
+  //   } catch (error) {
+  //     alert(error.message || error?.payload?.message || "Failed to verify OTP");
+  //     setIsOtpVerifiedLocal(false);
+  //     onOtpVerified(false);
+  //   } finally {
+  //     setIsVerifying(false);
+  //   }
+  // };
+
+  // Auto-verify OTP (bypassing OTP verification)
+  React.useEffect(() => {
+    if (formData.email && formData.mobile && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword) {
+      setIsOtpVerifiedLocal(true);
+      onOtpVerified(true);
     }
-    setIsVerifying(true);
-    try {
-      const verifyRes = await authService.verifyOtp({
-        email: formData.email,
-        otp: formData.otp,
-      });
-      if (verifyRes.success) {
-        alert("OTP verified successfully!");
-        setIsOtpVerifiedLocal(true);
-        onOtpVerified(true);
-      } else {
-        alert("Invalid OTP. Please try again.");
-        setIsOtpVerifiedLocal(false);
-        onOtpVerified(false);
-      }
-    } catch (error) {
-      alert(error.message || error?.payload?.message || "Failed to verify OTP");
-      setIsOtpVerifiedLocal(false);
-      onOtpVerified(false);
-    } finally {
-      setIsVerifying(false);
-    }
-  };
+  }, [formData.email, formData.mobile, formData.password, formData.confirmPassword, onOtpVerified, formData]);
 
   return (
     <div className="space-y-8">
@@ -99,9 +107,12 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
         <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
           Verify Your Contact Details
         </h2>
-        <p className="mt-2 text-sm text-slate-500">
+        {/* <p className="mt-2 text-sm text-slate-500">
           We will send a one-time password to confirm your email before you can
           continue.
+        </p> */}
+        <p className="mt-2 text-sm text-slate-500">
+          Please enter your contact details to continue with registration.
         </p>
       </div>
 
@@ -117,9 +128,9 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
             placeholder="name@example.com"
             required
           />
-          <p className="mt-1 text-xs text-slate-400">
+          {/* <p className="mt-1 text-xs text-slate-400">
             A verification code will be sent to this address.
-          </p>
+          </p> */}
           {emailExists && (
             <p className="mt-2 text-xs text-rose-600">
               This email is already registered. Please sign in instead.
@@ -185,7 +196,8 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
           </div>
         </div>
 
-        <div>
+        {/* OTP Verification - COMMENTED OUT */}
+        {/* <div>
           <label className={labelClass}>Verification OTP *</label>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <input
@@ -232,7 +244,7 @@ const EmailMobileVerification = ({ formData, handleChange, onOtpVerified }) => {
               Resend OTP
             </button>
           )}
-        </div>
+        </div> */}
       </div>
 
       <p className="text-xs text-slate-400">

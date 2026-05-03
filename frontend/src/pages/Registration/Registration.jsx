@@ -65,8 +65,8 @@ const MultiStepForm = () => {
           formData.mobile &&
           formData.password &&
           formData.confirmPassword &&
-          formData.password === formData.confirmPassword &&
-          isOtpVerified
+          formData.password === formData.confirmPassword
+          // isOtpVerified - COMMENTED OUT (OTP verification disabled)
         );
       case 3:
         return formData.gender && formData.roomPreference;
@@ -111,12 +111,13 @@ const MultiStepForm = () => {
     if (stepCompletion[step]) {
       if (step === 2) {
         // On EmailMobileVerification step, do email verification
+        // OTP verification disabled - passing empty otp
         try {
           await authService.emailVerification({
             email: formData.email,
             password: formData.password,
             confirmPassword: formData.confirmPassword,
-            otp: formData.otp,
+            otp: "", // Empty OTP since verification is disabled
             mobile: formData.mobile,
             studentName: formData.studentName || formData.name || "",
             gender: formData.gender || "",
