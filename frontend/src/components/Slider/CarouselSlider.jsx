@@ -67,13 +67,13 @@ const images = [
 // Placeholder data for professors - IMPORTANT: Replace imgSrc with actual image paths
 const professors = [
   {
-    name: "Prof. Alok Kumar Rai",
+    name: "Prof. Jai Prakash Saini",
     title: "Vice-Chancellor, University of Lucknow",
     imgSrc: i2,
     email: "vc@lko.ac.in",
   },
   {
-    name: "Prof. V. K. Sharma",
+    name: "Prof. Amita Kanaujia",
     title: "Dean Students' Welfare, University of Lucknow",
     imgSrc: i001,
     email: "dsw@lko.ac.in",
